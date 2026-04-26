@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "Default capability for crm-e",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "sql:allow-execute",
+    "sql:allow-load",
+    "sql:allow-select",
+    "shell:allow-open",
+    "http:default"
+  ]
+}

@@ -1,0 +1,19 @@
+[package]
+name = "crm-e"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+name = "crm_e_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+tauri-plugin-shell = { version = "2" }
+tauri-plugin-http = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
