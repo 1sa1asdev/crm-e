@@ -1,31 +1,174 @@
-* { box-sizing: border-box; }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-:root {
-  --bg: #0f1419;
-  --surface: #1a1f26;
-  --surface-2: #232a33;
-  --border: #2d3642;
-  --text: #e5e9f0;
-  --text-dim: #9aa4b2;
-  --primary: #5eb5ff;
-  --primary-hover: #7cc4ff;
-  --danger: #ff6b6b;
-  --success: #51cf66;
-  --warn: #ffd43b;
-  --radius: 8px;
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    @apply m-0 bg-canvas text-hi text-sm leading-relaxed font-sans;
+  }
+
+  button, input, select, textarea { font: inherit; color: inherit; }
+
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    @apply bg-surface border border-edge rounded-lg px-[10px] py-2 w-full;
+  }
+  input:focus, select:focus, textarea:focus {
+    @apply outline-none border-primary;
+  }
+  textarea { @apply font-mono text-[13px]; }
+
+  button {
+    @apply bg-raised border border-edge text-hi px-[14px] py-2 rounded-lg cursor-pointer transition-colors duration-150;
+  }
+  button:hover:not(:disabled) { @apply bg-edge; }
+  button:disabled { @apply opacity-50 cursor-not-allowed; }
 }
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.5;
-  user-select: none;
+@layer components {
+  /* button variants */
+  button.primary { @apply bg-primary border-primary text-[#08121c] font-semibold; }
+  button.primary:hover:not(:disabled) { @apply bg-primary-h border-primary-h; }
+  button.ghost { @apply bg-transparent border-transparent; }
+  button.ghost:hover:not(:disabled) { @apply bg-raised border-edge; }
+  button.danger { @apply bg-danger border-danger text-[#1a0808] font-semibold; }
+  button.danger:hover:not(:disabled) { @apply bg-[#ff4444] border-[#ff4444]; }
+  button.emails-btn { @apply bg-raised; }
+
+  /* status badges */
+  .status-badge { @apply inline-block px-[10px] py-[3px] rounded-full text-xs font-medium; }
+  .status-draft     { @apply bg-edge text-lo; }
+  .status-applied   { @apply bg-primary/10 text-primary; }
+  .status-replied   { @apply bg-warn/10 text-warn; }
+  .status-interview { @apply bg-success/10 text-success; }
+  .status-offer     { @apply bg-success/20 text-success font-semibold; }
+  .status-rejected  { @apply bg-danger/10 text-danger; }
+  .status-ghosted   { @apply bg-edge text-lo italic; }
+
+  /* intention chips (views strip) */
+  .view-chip {
+    @apply inline-flex items-center gap-1 bg-surface border border-edge text-lo px-3 py-[5px] rounded-full text-[13px] cursor-pointer transition-colors duration-150 select-none;
+  }
+  .view-chip:hover { @apply bg-raised text-hi; }
+  .view-chip.active { @apply bg-primary border-primary text-[#08121c] font-semibold; }
+  .view-chip.active:hover { @apply bg-primary-h; }
+  .view-chip.add-view { @apply bg-transparent border-dashed; }
+  .view-chip.add-view:hover { @apply text-primary border-primary; }
+  .view-chip .view-count { @apply text-[11px] opacity-75 ml-0.5; }
+  .view-chip .view-edit { @apply opacity-0 bg-transparent border-none text-inherit p-0 pl-1 text-xs cursor-pointer; }
+  .view-chip:hover .view-edit,
+  .view-chip.active .view-edit { @apply opacity-80; }
+
+  /* provider icons */
+  .provider-icon {
+    @apply inline-flex items-center justify-center w-[22px] h-[22px] rounded-[5px] text-xs font-bold leading-none shrink-0;
+  }
+  .gmail-icon   { @apply bg-gmail text-white; }
+  .outlook-icon { @apply bg-outlook text-white; }
+  .provider-icon-dim { @apply opacity-35; }
+
+  /* email items */
+  .email-item { @apply rounded-lg px-[14px] py-[10px] relative border border-transparent; }
+  .email-item.outgoing  { @apply bg-surface border-edge opacity-90; }
+  .email-item.incoming  { background: rgba(250,176,5,0.08); border-color: rgba(250,176,5,0.35); }
+  .email-item.rejection { @apply bg-danger/[.08] border-danger/30; }
+  .email-item.interview { @apply bg-success/[.08] border-success/30; }
+  .email-item.offer     { @apply bg-success/[.12] border-success/50; }
+
+  /* toast */
+  .toast {
+    @apply fixed bottom-6 left-1/2 -translate-x-1/2 translate-y-[100px] bg-raised border border-edge px-[18px] py-[10px] rounded-lg z-[1000] pointer-events-none transition-transform duration-200 text-sm;
+  }
+  .toast.show  { @apply translate-y-0; }
+  .toast.success { @apply border-success; }
+  .toast.error   { @apply border-danger; }
+
+  /* tag pills (jobs search) */
+  .tag-pill {
+    @apply flex items-center gap-1 pl-[10px] pr-2 py-[2px] bg-surface border border-edge rounded-full text-[13px] whitespace-nowrap;
+  }
+  .tag-pill button {
+    @apply bg-transparent border-none cursor-pointer p-0 leading-none text-lo text-sm flex items-center transition-colors;
+  }
+  .tag-pill button:hover { @apply text-hi; }
+
+  /* job cards */
+  .job-card {
+    @apply bg-surface border border-edge rounded-lg p-[14px] flex flex-col gap-[6px] relative;
+  }
+  .job-card.imported { @apply opacity-50; }
+  .job-chip { @apply bg-raised text-lo px-2 py-[2px] rounded-full text-[11px]; }
+  .job-chip.email   { @apply bg-success/10 text-success; }
+  .job-chip.ext-url { @apply bg-warn/10 text-warn; }
+
+  /* dropzone */
+  .dropzone {
+    @apply border-2 border-dashed border-edge rounded-lg p-6 mb-4 text-center text-lo bg-surface cursor-pointer transition-colors duration-150;
+  }
+  .dropzone:hover   { @apply border-primary text-hi; }
+  .dropzone.dragover { @apply border-primary bg-primary/[.06] text-hi; }
+
+  /* provider row (Data tab) */
+  .provider-row {
+    @apply flex items-center gap-3 px-3 py-[10px] rounded-lg border border-edge mb-2 flex-wrap transition-colors;
+  }
+  .provider-row.provider-active { @apply border-violet bg-violet/[.06]; }
+  .active-badge { @apply text-[11px] font-semibold px-2 py-[2px] rounded-full bg-violet text-white; }
+
+  /* gmail status */
+  .gmail-status { @apply px-3 py-2 rounded-lg text-[13px] border border-edge flex-1; }
+  .gmail-status.disconnected { @apply bg-surface text-lo; }
+  .gmail-status.connected    { @apply bg-success/10 border-success text-success; }
+  .gmail-status.error        { @apply bg-danger/10 border-danger text-danger; }
+
+  /* suggestion bar */
+  .suggestion {
+    @apply px-[14px] py-[10px] rounded-lg bg-primary/10 border border-primary text-[13px] flex justify-between items-center gap-3;
+  }
+  .suggestion button { @apply px-[10px] py-1 text-xs; }
 }
 
-button, input, select, textarea {
-  font: inherit;
-  color: inherit;
+/* ── dialog (::backdrop can't use @apply) ── */
+dialog {
+  @apply bg-surface text-hi border border-edge rounded-xl p-0;
+  max-width: 560px;
+  width: 92%;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.5);
 }
+dialog::backdrop { background: rgba(0,0,0,0.65); }
+dialog form { @apply p-5 flex flex-col gap-3; }
+dialog h3   { @apply m-0 mb-1 text-base font-semibold; }
+dialog label { @apply flex flex-col gap-1 text-[13px] text-lo; }
+dialog menu  { @apply flex justify-end gap-2 mt-2 m-0 p-0 list-none; }
+
+/* ── tag-input inner element (child selector, can't use Tailwind) ── */
+.tag-input-wrap input {
+  flex: 1; min-width: 120px;
+  border: none; background: transparent; outline: none;
+  font-size: 13px; padding: 0; color: inherit;
+}
+
+/* ── intention inline select ── */
+.intention-select {
+  display: block; margin-top: 3px;
+  width: auto; max-width: 160px;
+  padding: 1px 16px 1px 0;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239aa4b2' opacity='.5'/%3E%3C/svg%3E") no-repeat right 2px center;
+  background-size: 8px;
+  border: none; border-radius: 0;
+  font-size: 11px; font-weight: 500;
+  color: #9aa4b2;
+  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+.intention-select.has-value { color: #a78bfa; }
+.intention-select:focus  { outline: none; }
+.intention-select:hover  { color: #e5e9f0; }
+.intention-select option { background: #232a33; color: #e5e9f0; font-size: 13px; }
+
+/* ── select/multi-select toolbar ── */
+tr.row-selected td { background: rgba(94,181,255,0.06); }
+.bulk-count { font-weight: 600; color: #5eb5ff; }
