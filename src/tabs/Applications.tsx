@@ -611,9 +611,9 @@ export default function Applications() {
     toast(`Deleted ${n} application${n !== 1 ? 's' : ''}`)
   }
 
-  async function bulkSync() {
-    const toSync = state.applications.filter(a => selected.has(a.id) && (a.thread_ids || []).length > 0)
-    if (!toSync.length) { toast('No selected applications have tracked email threads', 'error'); return }
+  async function syncApps(apps: Application[]) {
+    const toSync = apps.filter(a => (a.thread_ids || []).length > 0)
+    if (!toSync.length) { toast('No applications have tracked email threads', 'error'); return }
     setBulkSyncing(true)
     let done = 0
     try {
@@ -634,6 +634,8 @@ export default function Applications() {
     } catch (e) { toast((e as Error).message, 'error') }
     finally { setBulkSyncing(false) }
   }
+
+  function syncAll() { syncApps(state.applications) }
 
   function saveApp(data: Record<string, string>) {
     if ('view_id' in data && !data.view_id) delete data.view_id
@@ -768,14 +770,14 @@ export default function Applications() {
 
       <div className="flex items-center justify-end gap-2 mb-1.5 min-h-[30px]">
         {!multiSelect
-          ? <button className="ghost text-xs px-[10px] py-1 opacity-45 hover:opacity-100" onClick={() => setMultiSelect(true)}>☑ Select</button>
+          ? <>
+              <button className="ghost text-xs px-[10px] py-1 opacity-45 hover:opacity-100" onClick={syncAll} disabled={bulkSyncing}>{bulkSyncing ? 'Syncing…' : 'Sync all'}</button>
+              <button className="ghost text-xs px-[10px] py-1 opacity-45 hover:opacity-100" onClick={() => setMultiSelect(true)}>☑ Select</button>
+            </>
           : <>
               <span className="bulk-count text-[13px]">{selected.size > 0 ? `${selected.size} selected` : 'Select rows…'}</span>
               <button className="ghost text-xs px-[10px] py-1" disabled={rows.length === 0} onClick={() => toggleSelectAll(rows.map(r => r.id))}>
                 {rows.length > 0 && rows.every(r => selected.has(r.id)) ? 'Deselect all' : 'Select all'}
-              </button>
-              <button className="text-xs px-[10px] py-1" onClick={bulkSync} disabled={bulkSyncing || selected.size === 0}>
-                {bulkSyncing ? 'Syncing…' : `Sync${selected.size > 0 ? ` (${selected.size})` : ''}`}
               </button>
               <button className="danger text-xs px-[10px] py-1" disabled={selected.size === 0} onClick={bulkDelete}>
                 {`Delete${selected.size > 0 ? ` (${selected.size})` : ''}`}
