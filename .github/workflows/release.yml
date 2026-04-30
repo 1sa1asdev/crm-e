@@ -56,5 +56,4 @@ jobs:
             See the assets below to download this release.
           releaseDraft: true
           prerelease: true
-          tauriScript: npm run build
           args: --target ${{ matrix.target }}
