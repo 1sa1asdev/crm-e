@@ -25,7 +25,7 @@ interface ORModel {
   pricing: { prompt: string; completion: string }
 }
 
-export default function Data() {
+export default function Settings() {
   const { state, update, toast } = useStore()
   const s = state.settings
   const [orModels, setOrModels] = useState<ORModel[]>([])
@@ -70,7 +70,7 @@ export default function Data() {
 
   // ── Gmail OAuth2 PKCE ────────────────────────────────────────────────────────
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
-const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send profile'
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send email profile'
 const GMAIL_CLIENT_ID = import.meta.env.VITE_GMAIL_CLIENT_ID
 const GMAIL_CLIENT_SECRET = import.meta.env.VITE_GMAIL_CLIENT_SECRET
 
@@ -137,29 +137,9 @@ async function connectGmail() {
 
   return (
     <div className="p-6 max-w-[1200px] mx-auto">
-      <div className="flex justify-between items-center mb-4 flex-wrap gap-3"><h2 className="m-0 text-base font-semibold">Data</h2></div>
+      <div className="flex justify-between items-center mb-6 flex-wrap gap-3"><h2 className="m-0 text-base font-semibold">Settings</h2></div>
 
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3 max-w-[720px] mb-6">
-        <label className="flex flex-col gap-1 text-[13px] text-lo">Your name
-          <input type="text" placeholder="Jane Doe" value={s.name}
-            onChange={e => update(ss => { ss.settings.name = e.target.value })}
-            onBlur={() => toast('Saved', 'success')} />
-        </label>
-        <label className="flex flex-col gap-1 text-[13px] text-lo">Your email
-          <input type="email" placeholder="jane@example.com" value={s.email}
-            onChange={e => update(ss => { ss.settings.email = e.target.value })}
-            onBlur={() => toast('Saved', 'success')} />
-        </label>
-        <label className="flex flex-col gap-1 text-[13px] text-lo">Compose via
-          <select value={s.compose} style={{ width: 'auto' }}
-            onChange={e => { update(ss => { ss.settings.compose = e.target.value as 'gmail' | 'mailto' }); toast('Saved', 'success') }}>
-            <option value="gmail">Gmail web</option>
-            <option value="mailto">Default mail client (mailto:)</option>
-          </select>
-        </label>
-      </div>
-
-      <h3 className="mt-6 mb-2 text-sm font-semibold">Email sync</h3>
+      <h3 className="mt-0 mb-2 text-sm font-semibold">Email sync</h3>
       <p className="text-lo text-[13px] m-0 mb-4">Save credentials for both providers. Only one is <strong>active</strong> at a time — click to switch.</p>
 
       {(['gmail', 'outlook'] as const).map(p => {

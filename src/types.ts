@@ -34,6 +34,7 @@ export interface Template {
   name: string
   subject: string
   body: string
+  type: 'email' | 'cover_letter'
 }
 
 export interface FileRecord {
@@ -81,9 +82,22 @@ export interface FilterView {
   statuses: string[]
 }
 
+export interface CustomLink {
+  label: string
+  url: string
+}
+
 export interface Settings {
   name: string
+  last_name: string
   email: string
+  phone: string
+  street: string
+  city: string
+  postal_code: string
+  country: string
+  linkedin: string
+  links: CustomLink[]
   compose: 'gmail' | 'mailto'
   active_mail_provider: MailProvider
   openrouter_key: string

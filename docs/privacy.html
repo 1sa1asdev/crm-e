@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — crm-e</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; line-height: 1.7; }
+    .container { max-width: 720px; margin: 0 auto; padding: 60px 24px; }
+    nav { margin-bottom: 48px; }
+    nav a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
+    .updated { color: #8b949e; font-size: 0.9rem; margin-bottom: 40px; }
+    h2 { font-size: 1.1rem; font-weight: 600; margin: 36px 0 12px; color: #e6edf3; }
+    p { color: #8b949e; margin-bottom: 12px; }
+    ul { color: #8b949e; padding-left: 20px; margin-bottom: 12px; }
+    ul li { margin-bottom: 6px; }
+    footer { text-align: center; padding: 40px 24px; color: #484f58; font-size: 0.85rem; border-top: 1px solid #21262d; margin-top: 60px; }
+    footer a { color: #58a6ff; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav><a href="index.html">← crm-e</a></nav>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: May 2025</p>
+
+    <h2>Overview</h2>
+    <p>crm-e is a desktop application that runs entirely on your device. We do not operate any servers, collect any telemetry, or store any of your data remotely. All data you enter into crm-e stays on your machine.</p>
+
+    <h2>Data stored locally</h2>
+    <p>The following data is stored in your browser's local storage on your device only:</p>
+    <ul>
+      <li>Job application records you create (company, role, status, notes, etc.)</li>
+      <li>Email templates and cover letters you write</li>
+      <li>Files you upload (CVs, cover letters)</li>
+      <li>Your profile information (name, phone, address, links)</li>
+      <li>OAuth access tokens for Gmail and/or Outlook (used to send and sync emails on your behalf)</li>
+      <li>Your OpenRouter API key (if configured)</li>
+    </ul>
+    <p>None of this data ever leaves your device except when explicitly used to contact Google or Microsoft APIs as described below.</p>
+
+    <h2>Google Gmail integration</h2>
+    <p>If you connect a Gmail account, crm-e uses OAuth 2.0 to request permission to read and send emails on your behalf. The following Google API scopes are requested:</p>
+    <ul>
+      <li><code>gmail.readonly</code> — to sync email threads related to your applications</li>
+      <li><code>gmail.send</code> — to send emails you compose in the app</li>
+      <li><code>email</code> and <code>profile</code> — to display your connected email address</li>
+    </ul>
+    <p>Your Gmail access token is stored locally on your device. crm-e does not transmit your emails or token to any third party other than Google's own APIs.</p>
+
+    <h2>Microsoft Outlook integration</h2>
+    <p>If you connect an Outlook account, crm-e uses OAuth 2.0 (PKCE) to request permission to read and send emails. The following Microsoft Graph scopes are requested:</p>
+    <ul>
+      <li><code>Mail.Read</code> — to sync email threads</li>
+      <li><code>Mail.Send</code> — to send emails you compose</li>
+      <li><code>email</code> and <code>openid</code> — to display your connected email address</li>
+    </ul>
+    <p>Your Outlook access token is stored locally on your device. crm-e does not transmit your emails or token to any third party other than Microsoft's own APIs.</p>
+
+    <h2>OpenRouter / AI features</h2>
+    <p>If you configure an OpenRouter API key, email snippets from synced threads may be sent to OpenRouter's API for AI analysis. This is optional and only happens when you explicitly click "AI analyze". Your API key is stored locally and never shared with anyone other than OpenRouter.</p>
+
+    <h2>No analytics or tracking</h2>
+    <p>crm-e contains no analytics, crash reporting, advertising SDKs, or any form of usage tracking. We have no visibility into how you use the app.</p>
+
+    <h2>Open source</h2>
+    <p>crm-e is fully open source. You can inspect exactly what the app does with your data at any time by reviewing the source code on <a href="https://github.com/1sa1asdev/crm-e" style="color:#58a6ff">GitHub</a>.</p>
+
+    <h2>Contact</h2>
+    <p>If you have any questions about this privacy policy, open an issue on <a href="https://github.com/1sa1asdev/crm-e" style="color:#58a6ff">GitHub</a>.</p>
+  </div>
+
+  <footer>
+    <p><a href="index.html">crm-e</a> &nbsp;·&nbsp; <a href="privacy.html">Privacy policy</a> &nbsp;·&nbsp; <a href="terms.html">Terms of service</a></p>
+  </footer>
+</body>
+</html>

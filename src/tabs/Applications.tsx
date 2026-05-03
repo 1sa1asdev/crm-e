@@ -2,8 +2,49 @@ import { useState, useCallback } from 'react'
 import { useStore } from '../store'
 import { useDialog } from '../hooks/useDialog'
 import { uid } from '../utils'
-import type { Application, FilterView, EmailRecord, MailProvider } from '../types'
+import type { Application, FilterView, EmailRecord, MailProvider, FileRecord } from '../types'
 import { STATUSES } from '../types'
+
+const ATTACHABLE_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  'text/plain',
+])
+
+function buildGmailRaw(from: string, to: string, subject: string, body: string, files: FileRecord[]): string {
+  const boundary = `crme_${Math.random().toString(36).slice(2)}`
+  const chunkB64 = (b64: string) => b64.match(/.{1,76}/g)?.join('\r\n') ?? b64
+
+  const lines: string[] = [
+    `From: ${from}`, `To: ${to}`, `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+  ]
+
+  if (files.length === 0) {
+    lines.push('Content-Type: text/plain; charset=utf-8', '', body)
+  } else {
+    lines.push(`Content-Type: multipart/mixed; boundary="${boundary}"`, '',
+      `--${boundary}`, 'Content-Type: text/plain; charset=utf-8', '', body)
+    for (const f of files) {
+      const b64 = f.data_url.split(',')[1] ?? ''
+      lines.push(
+        `--${boundary}`,
+        `Content-Type: ${f.type}; name="${f.filename}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-Disposition: attachment; filename="${f.filename}"`,
+        '', chunkB64(b64),
+      )
+    }
+    lines.push(`--${boundary}--`)
+  }
+
+  const raw = lines.join('\r\n')
+  let bin = ''
+  new TextEncoder().encode(raw).forEach(b => { bin += String.fromCharCode(b) })
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+}
 
 function isConnected(mail: { token: string; expires_at: number }) {
   return !!(mail.token && mail.expires_at > Date.now() + 30_000)
@@ -236,11 +277,32 @@ function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([])
   const [sending, setSending] = useState(false)
   const [provider, setProvider] = useState<MailProvider>(app?.sync_provider ?? 'gmail')
+  const [coverLetterId, setCoverLetterId] = useState('')
+  const [coverLetterBody, setCoverLetterBody] = useState('')
+  const [pdfAttachment, setPdfAttachment] = useState<FileRecord | null>(null)
+  const [generatingPdf, setGeneratingPdf] = useState(false)
 
   const gmailOk   = isConnected(state.mail.gmail)
   const outlookOk = isConnected(state.mail.outlook)
   const mailState = provider === 'gmail' ? state.mail.gmail : state.mail.outlook
   const connected = provider === 'gmail' ? gmailOk : outlookOk
+  const coverLetterTemplates = state.templates.filter(t => (t.type ?? 'email') === 'cover_letter')
+
+  function buildVars(filesText: string): Record<string, string> {
+    return {
+      company: app?.company ?? '', role: app?.role ?? '',
+      contact_name: app?.contact_name || 'there',
+      my_name: state.settings.name ?? '',
+      my_last_name: state.settings.last_name ?? '',
+      my_full_name: [state.settings.name, state.settings.last_name].filter(Boolean).join(' '),
+      my_email: state.settings.email ?? '',
+      my_phone: state.settings.phone ?? '',
+      my_address: [state.settings.street, state.settings.city, state.settings.postal_code, state.settings.country].filter(Boolean).join(', '),
+      my_linkedin: state.settings.linkedin ?? '',
+      my_links: (state.settings.links ?? []).filter(l => l.label && l.url).map(l => `${l.label}: ${l.url}`).join('\n'),
+      files: filesText,
+    }
+  }
 
   function selectedFileNames() {
     return selectedFiles.map(id => state.files.find(f => f.id === id)?.filename).filter(Boolean) as string[]
@@ -249,34 +311,65 @@ function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
   function applyTemplate(tplId: string) {
     const tpl = state.templates.find(t => t.id === tplId)
     if (!tpl) { setSubject(''); setBody(''); return }
-    const filesText = selectedFileNames().join(', ') || '(none)'
-    const vars: Record<string, string> = {
-      company: app?.company ?? '', role: app?.role ?? '',
-      contact_name: app?.contact_name || 'there',
-      my_name: state.settings.name ?? '', files: filesText,
-    }
+    const vars = buildVars(selectedFileNames().join(', ') || '(none)')
     const fill = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? `{{${k}}}`)
     setSubject(fill(tpl.subject))
     setBody(fill(tpl.body))
+  }
+
+  function applyCoverLetter(tplId: string) {
+    setCoverLetterId(tplId)
+    setPdfAttachment(null)
+    if (!tplId) { setCoverLetterBody(''); return }
+    const tpl = state.templates.find(t => t.id === tplId)
+    if (!tpl) { setCoverLetterBody(''); return }
+    const vars = buildVars(selectedFileNames().join(', ') || '(none)')
+    const fill = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? `{{${k}}}`)
+    setCoverLetterBody(fill(tpl.body))
+  }
+
+  async function generateCoverLetterPDF() {
+    if (!coverLetterBody) return
+    setGeneratingPdf(true)
+    try {
+      const { jsPDF } = await import('jspdf')
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const margin = 20
+      const maxWidth = doc.internal.pageSize.getWidth() - margin * 2
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(11)
+      const lines = doc.splitTextToSize(coverLetterBody, maxWidth)
+      let y = margin + 5
+      for (const line of lines) {
+        if (y > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin }
+        doc.text(line, margin, y)
+        y += 6
+      }
+      const dataUrl = doc.output('datauristring')
+      const filename = `cover-letter-${(app?.company || 'application').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`
+      setPdfAttachment({ id: 'cl-pdf', label: 'Cover letter', description: '', filename, data_url: dataUrl, size: Math.round((dataUrl.length - 28) * 0.75), type: 'application/pdf', uploaded_at: new Date().toISOString() })
+      toast('Cover letter PDF attached', 'success')
+    } catch (e) {
+      toast(`PDF error: ${(e as Error).message}`, 'error')
+    } finally {
+      setGeneratingPdf(false)
+    }
   }
 
   async function sendViaAPI() {
     const to = app?.contact_email ?? ''
     if (!to) { toast('No contact email set', 'error'); return }
     if (!connected) { toast(`Connect ${provider === 'outlook' ? 'Outlook' : 'Gmail'} in Data settings first`, 'error'); return }
+    const attachedFiles = [
+      ...(pdfAttachment ? [pdfAttachment] : []),
+      ...selectedFiles.map(id => state.files.find(f => f.id === id)).filter(Boolean) as FileRecord[],
+    ]
     setSending(true)
     try {
       const token = mailState.token
       if (provider === 'gmail') {
         const from = mailState.user_email ? `${state.settings.name} <${mailState.user_email}>` : mailState.user_email
-        const raw = [
-          `From: ${from}`, `To: ${to}`, `Subject: ${subject}`,
-          'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', body,
-        ].join('\r\n')
-        const bytes = new TextEncoder().encode(raw)
-        let bin = ''
-        bytes.forEach(b => { bin += String.fromCharCode(b) })
-        const encoded = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+        const encoded = buildGmailRaw(from, to, subject, body, attachedFiles)
         const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -297,6 +390,12 @@ function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
             subject,
             body: { contentType: 'Text', content: body },
             toRecipients: [{ emailAddress: { address: to } }],
+            attachments: attachedFiles.map(f => ({
+              '@odata.type': '#microsoft.graph.fileAttachment',
+              name: f.filename,
+              contentType: f.type,
+              contentBytes: f.data_url.split(',')[1] ?? '',
+            })),
           }),
         })
         if (!draftRes.ok) {
@@ -338,17 +437,41 @@ function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
             No email account connected — go to Data to connect Gmail or Outlook first.
           </div>
         )}
-        <label>Template
+        <label>Email template
           <select onChange={e => applyTemplate(e.target.value)}>
             <option value="">— blank —</option>
-            {state.templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {state.templates.filter(t => (t.type ?? 'email') === 'email').map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </label>
-        <label>Files to reference
+        {coverLetterTemplates.length > 0 && (
+          <label>Cover letter
+            <select value={coverLetterId} onChange={e => applyCoverLetter(e.target.value)}>
+              <option value="">— none —</option>
+              {coverLetterTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </label>
+        )}
+        {coverLetterBody && (
+          <div className="flex flex-col gap-2">
+            <textarea
+              className="text-[12px]"
+              rows={6}
+              value={coverLetterBody}
+              onChange={e => { setCoverLetterBody(e.target.value); setPdfAttachment(null) }}
+            />
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={generateCoverLetterPDF} disabled={generatingPdf}>
+                {generatingPdf ? 'Generating…' : pdfAttachment ? '↺ Regenerate PDF' : 'Attach as PDF'}
+              </button>
+              {pdfAttachment && <span className="text-xs text-success">✓ {pdfAttachment.filename}</span>}
+            </div>
+          </div>
+        )}
+        <label>Attach files
           <div className="flex flex-col gap-1 bg-canvas border border-edge rounded-lg p-2 max-h-[120px] overflow-y-auto">
-            {state.files.length === 0
-              ? <span className="text-lo font-normal text-xs">No files registered. Add them in the Files tab.</span>
-              : state.files.map(f => (
+            {state.files.filter(f => ATTACHABLE_TYPES.has(f.type)).length === 0
+              ? <span className="text-lo font-normal text-xs">No attachable files. Add PDF, Word, or image files in the Files tab.</span>
+              : state.files.filter(f => ATTACHABLE_TYPES.has(f.type)).map(f => (
                 <label key={f.id} className="flex-row items-center gap-1.5 text-hi">
                   <input type="checkbox" checked={selectedFiles.includes(f.id)} style={{ width: 'auto' }}
                     onChange={e => setSelectedFiles(prev => e.target.checked ? [...prev, f.id] : prev.filter(x => x !== f.id))} />
@@ -606,7 +729,11 @@ export default function Applications() {
   function bulkDelete() {
     const n = selected.size
     if (!confirm(`Delete ${n} application${n !== 1 ? 's' : ''}?`)) return
-    update(s => { s.applications = s.applications.filter(a => !selected.has(a.id)) })
+    update(s => {
+      const removedJobIds = s.applications.filter(a => selected.has(a.id) && a.source_job_id).map(a => a.source_job_id!)
+      s.applications = s.applications.filter(a => !selected.has(a.id))
+      s.imported_job_ids = s.imported_job_ids.filter(id => !removedJobIds.includes(id))
+    })
     exitMultiSelect()
     toast(`Deleted ${n} application${n !== 1 ? 's' : ''}`)
   }
@@ -661,7 +788,10 @@ export default function Applications() {
   function deleteApp(id: string) {
     const app = state.applications.find(a => a.id === id)
     if (!app || !confirm(`Delete ${app.company} — ${app.role}?`)) return
-    update(s => { s.applications = s.applications.filter(a => a.id !== id) })
+    update(s => {
+      if (app.source_job_id) s.imported_job_ids = s.imported_job_ids.filter(j => j !== app.source_job_id)
+      s.applications = s.applications.filter(a => a.id !== id)
+    })
     toast('Deleted')
   }
 
@@ -708,7 +838,7 @@ export default function Applications() {
       if (a.status === 'draft') a.status = 'applied'
       if (!a.applied_at) a.applied_at = a.last_contact_at
       a.sync_provider = provider
-      if (threadId && !a.thread_ids.includes(threadId)) a.thread_ids.push(threadId)
+      if (threadId) { if (!a.thread_ids) a.thread_ids = []; if (!a.thread_ids.includes(threadId)) a.thread_ids.push(threadId) }
     })
   }
 
@@ -866,7 +996,7 @@ export default function Applications() {
 
       <AppDialog open={appOpen} initial={editingApp} views={state.filter_views} onClose={closeApp} onSave={saveApp} />
       <ViewDialog open={viewOpen} initial={editingView} onClose={useCallback(() => setViewOpen(false), [])} onSave={saveView} onDelete={deleteView} />
-      <ComposeDialog open={composeOpen} app={composeApp} onClose={useCallback(() => setComposeOpen(false), [])} onSent={onSent} />
+      <ComposeDialog key={composeApp?.id ?? 'none'} open={composeOpen} app={composeApp} onClose={useCallback(() => setComposeOpen(false), [])} onSent={onSent} />
       <EmailsDialog open={emailsOpen} app={emailsApp} onClose={useCallback(() => setEmailsOpen(false), [])} />
     </div>
   )

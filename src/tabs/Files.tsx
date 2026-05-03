@@ -27,9 +27,9 @@ function FileDialog({ open, initial, onClose, onSave }: {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
     if (!f) { setPendingFile(null); setInfo(''); return }
-    if (f.size > 4 * 1024 * 1024) {
+    if (f.size > 3 * 1024 * 1024) {
       setInfoError(true)
-      setInfo(`${f.name} is ${formatBytes(f.size)} — keep under 4 MB`)
+      setInfo(`${f.name} is ${formatBytes(f.size)} — max 3 MB (Outlook attachment limit)`)
       setPendingFile(null)
       e.target.value = ''
       return
@@ -53,7 +53,7 @@ function FileDialog({ open, initial, onClose, onSave }: {
         <h3>{initial ? 'Edit file' : 'Upload file'}</h3>
         <label>
           File
-          <input type="file" onChange={handleFileChange} />
+          <input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.txt" onChange={handleFileChange} />
           {initial && !pendingFile && <span className="text-xs text-lo mt-1 block">{initial.filename ? `Current: ${initial.filename} (${formatBytes(initial.size)}) — pick a new file to replace` : ''}</span>}
           {info && <span className={infoError ? 'text-xs text-danger mt-1 block' : 'text-xs text-lo mt-1 block'}>{info}</span>}
         </label>
@@ -97,7 +97,7 @@ export default function Files() {
     update(s => {
       if (existing) {
         const idx = s.files.findIndex(f => f.id === existing.id)
-        s.files[idx] = { ...existing, ...fileData, label, description: record.description ?? existing.description }
+        if (idx >= 0) s.files[idx] = { ...existing, ...fileData, label, description: record.description ?? existing.description }
       } else {
         s.files.unshift({ ...fileData, id: uid('file'), label, description: record.description ?? '' } as FileRecord)
       }
@@ -111,7 +111,7 @@ export default function Files() {
     if (!files.length) return
     let ok = 0
     for (const file of files) {
-      if (file.size > 4 * 1024 * 1024) { toast(`${file.name} too large (max 4 MB)`, 'error'); continue }
+      if (file.size > 3 * 1024 * 1024) { toast(`${file.name} too large (max 3 MB)`, 'error'); continue }
       try {
         const dataUrl = await readFileAsDataUrl(file)
         update(s => {
@@ -160,7 +160,7 @@ export default function Files() {
           <span>or click <strong>+ Upload file</strong> for a form with label and description.</span>
         </div>
       </div>
-      <input ref={dropFileInput} type="file" multiple hidden onChange={async e => { await handleDroppedFiles(e.target.files ?? []); e.target.value = '' }} />
+      <input ref={dropFileInput} type="file" multiple hidden accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.txt" onChange={async e => { await handleDroppedFiles(e.target.files ?? []); e.target.value = '' }} />
 
       {state.files.length === 0
         ? <p className="text-center text-lo p-10 bg-surface rounded-lg border border-dashed border-edge">No files uploaded yet.</p>

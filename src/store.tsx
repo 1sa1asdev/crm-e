@@ -11,12 +11,14 @@ export const DEFAULT_STATE: AppState = {
       name: 'Cold application',
       subject: 'Application for {{role}} at {{company}}',
       body: `Hi {{contact_name}},\n\nI'm writing to apply for the {{role}} role at {{company}}. I've attached my CV and cover letter ({{files}}) for your consideration.\n\nI'd love the chance to talk about how I could contribute to your team.\n\nBest,\n{{my_name}}`,
+      type: 'email',
     },
     {
       id: 'tpl-seed-2',
       name: 'Follow-up',
       subject: 'Following up on {{role}} application',
       body: `Hi {{contact_name}},\n\nI wanted to follow up on my application for the {{role}} position at {{company}} submitted earlier.\n\nHappy to share any additional info that would be useful. Looking forward to hearing from you.\n\nBest,\n{{my_name}}`,
+      type: 'email',
     },
   ],
   files: [],
@@ -26,7 +28,10 @@ export const DEFAULT_STATE: AppState = {
   filter_views: [],
   active_view_id: null,
   settings: {
-    name: '', email: '', compose: 'gmail', active_mail_provider: 'gmail',
+    name: '', last_name: '', email: '', phone: '',
+    street: '', city: '', postal_code: '', country: '',
+    linkedin: '', links: [],
+    compose: 'gmail', active_mail_provider: 'gmail',
     openrouter_key: '', openrouter_model: '',
   },
   mail: {
@@ -44,6 +49,10 @@ function loadState(): AppState {
     const result = { ...base, ...parsed }
     // deep-merge nested objects so added fields aren't dropped
     result.settings = { ...base.settings, ...(parsed.settings ?? {}) }
+    // migrate templates missing type field
+    if (Array.isArray(result.templates)) {
+      result.templates = result.templates.map((t: { type?: string }) => t.type ? t : { ...t, type: 'email' })
+    }
     // migrate old flat mail structure { token, ... } → new { gmail, outlook }
     if (parsed.mail && typeof parsed.mail.token === 'string') {
       const oldProvider = parsed.settings?.email_provider === 'outlook' ? 'outlook' : 'gmail'

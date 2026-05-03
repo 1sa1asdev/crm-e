@@ -413,6 +413,13 @@ export default function Jobs() {
     toast(`Intention "${name}" created`, 'success')
   }
 
+  function unimportJob(hitId: string) {
+    update(s => {
+      s.applications = s.applications.filter(a => a.source_job_id !== hitId)
+      s.imported_job_ids = s.imported_job_ids.filter(id => id !== hitId)
+    })
+  }
+
   function importJob(hit: JobHit) {
     const email = extractEmail(hit)
     const url = hit.application_details?.url || ''
@@ -536,13 +543,12 @@ export default function Jobs() {
             <div key={hit.id} className={`job-card ${imported ? 'imported' : ''}`}>
               <button
                 className={imported
-                  ? 'absolute top-[10px] right-[10px] w-[30px] h-[30px] p-0 text-lg leading-none rounded-full bg-raised text-lo border-edge cursor-default'
+                  ? 'absolute top-[10px] right-[10px] w-[30px] h-[30px] p-0 text-lg leading-none rounded-full bg-danger/20 text-danger border-danger/50 font-bold'
                   : 'absolute top-[10px] right-[10px] w-[30px] h-[30px] p-0 text-lg leading-none rounded-full bg-primary text-[#08121c] border-primary font-bold'}
-                disabled={imported}
-                title={imported ? 'Redan importerad' : 'Importera till CRM'}
-                onClick={() => !imported && importJob(hit)}
+                title={imported ? 'Remove from applications' : 'Import to CRM'}
+                onClick={() => imported ? unimportJob(hit.id) : importJob(hit)}
               >
-                {imported ? '✓' : '+'}
+                {imported ? '✕' : '+'}
               </button>
               <h3 className="m-0 font-semibold text-sm" style={{ paddingRight: 36, lineHeight: 1.35 }}>{hit.headline || '(utan titel)'}</h3>
               <div className="text-lo text-xs flex gap-2 flex-wrap">
