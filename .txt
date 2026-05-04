@@ -1,3 +1,0 @@
-filter by intention 
-add files to email 
-ai needs to look for rejection
