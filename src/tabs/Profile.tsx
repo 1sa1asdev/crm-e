@@ -19,8 +19,11 @@ export default function Profile() {
     )
   }
 
-  function addLink() {
-    update(ss => { ss.settings.links.push({ label: '', url: '' }) })
+  function addLink(label = '', url = '') {
+    update(ss => {
+      if (!Array.isArray(ss.settings.links)) ss.settings.links = []
+      ss.settings.links.push({ label, url })
+    })
   }
 
   function updateLink(i: number, key: 'label' | 'url', val: string) {
@@ -65,7 +68,7 @@ export default function Profile() {
 
       <h3 className="text-sm font-semibold mb-3">Custom links</h3>
       <div className="flex flex-col gap-2 mb-3">
-        {s.links.map((link, i) => (
+        {(s.links ?? []).map((link, i) => (
           <div key={i} className="flex gap-2 items-center">
             <input
               type="text"
@@ -83,11 +86,22 @@ export default function Profile() {
               onChange={e => updateLink(i, 'url', e.target.value)}
               onBlur={() => toast('Saved', 'success')}
             />
-            <button className="ghost text-xs px-2 py-1 text-danger" onClick={() => removeLink(i)}>✕</button>
+            <button className="ghost text-xs px-2 py-1" style={{ color: 'var(--danger, #ef4444)' }} onClick={() => removeLink(i)}>✕</button>
           </div>
         ))}
       </div>
-      <button className="ghost text-xs px-3 py-1" onClick={addLink}>+ Add link</button>
+      <div className="flex flex-wrap gap-2">
+        <button className="ghost text-xs px-3 py-1" onClick={() => addLink()}>+ Custom</button>
+        {[
+          { label: 'GitHub', url: 'https://github.com/' },
+          { label: 'Portfolio', url: 'https://yoursite.com' },
+          { label: 'Dribbble', url: 'https://dribbble.com/' },
+          { label: 'Behance', url: 'https://behance.net/' },
+        ].filter(p => !(s.links ?? []).some(l => l.label === p.label)).map(p => (
+          <button key={p.label} className="ghost text-xs px-3 py-1" onClick={() => addLink(p.label, p.url)}>
+            + {p.label}
+          </button>
+        ))}</div>
     </div>
   )
 }

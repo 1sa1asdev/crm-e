@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react'
 import { useStore } from '../store'
 import { useDialog } from '../hooks/useDialog'
 import { uid } from '../utils'
+import { ensureToken } from '../auth'
+import { linkVar } from './Templates'
 import type { Application, FilterView, EmailRecord, MailProvider, FileRecord } from '../types'
 import { STATUSES } from '../types'
 
@@ -13,13 +15,14 @@ const ATTACHABLE_TYPES = new Set([
   'text/plain',
 ])
 
-function buildGmailRaw(from: string, to: string, subject: string, body: string, files: FileRecord[]): string {
+function buildGmailRaw(from: string, to: string, subject: string, body: string, files: FileRecord[], inReplyTo?: string): string {
   const boundary = `crme_${Math.random().toString(36).slice(2)}`
   const chunkB64 = (b64: string) => b64.match(/.{1,76}/g)?.join('\r\n') ?? b64
 
   const lines: string[] = [
     `From: ${from}`, `To: ${to}`, `Subject: ${subject}`,
     'MIME-Version: 1.0',
+    ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`, `References: ${inReplyTo}`] : []),
   ]
 
   if (files.length === 0) {
@@ -80,7 +83,8 @@ function matchesView(app: Application, view: FilterView) {
 function classifyMessage(subject: string, snippet: string, direction: string) {
   const text = `${subject} ${snippet}`.toLowerCase()
   if (/\b(offer|pleased to offer|employment agreement|job offer)\b/.test(text)) return 'offer'
-  if (/\b(unfortunately|not moving forward|not proceeding|regret to inform|other candidates|decided not to)\b/.test(text)) return 'rejection'
+  if (/\b(unfortunately|not moving forward|not proceeding|regret to inform|other candidates|decided not to|not go forward|not be moving|not been selected|position has been filled|gone with another|chosen another candidate)\b/.test(text)
+    || /tyvärr|inte gå vidare|valt att inte|inte kommer att gå vidare|tackar nej|ej gå vidare|vi har valt|inte möjligt att|gå vidare med din/.test(text)) return 'rejection'
   if (/\b(interview|schedule a|availability|calendly|phone screen|chat with|meet with|zoom|google meet)\b/.test(text)) return 'interview'
   return direction === 'outgoing' ? 'outgoing' : 'incoming'
 }
@@ -93,6 +97,36 @@ function suggestStatus(emails: EmailRecord[]) {
   if (kinds.includes('interview')) return 'interview'
   if (emails.some(e => e.direction === 'incoming')) return 'replied'
   return null
+}
+
+interface GmailPayload {
+  mimeType?: string
+  body?: { data?: string }
+  parts?: GmailPayload[]
+  headers?: { name: string; value: string }[]
+}
+
+function decodeBase64Utf8(b64url: string): string {
+  try {
+    const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/')
+    const binary = atob(b64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return new TextDecoder('utf-8').decode(bytes)
+  } catch { return '' }
+}
+
+function extractGmailBody(payload: GmailPayload): string {
+  if (payload.body?.data) return decodeBase64Utf8(payload.body.data)
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      if (part.mimeType === 'text/plain') { const t = extractGmailBody(part); if (t) return t }
+    }
+    for (const part of payload.parts) {
+      const t = extractGmailBody(part); if (t) return t
+    }
+  }
+  return ''
 }
 
 async function fetchEmailsForApp(
@@ -108,33 +142,40 @@ async function fetchEmailsForApp(
   if (provider === 'gmail') {
     for (const threadId of threadIds) {
       const tr = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=full`,
         { headers: { Authorization: `Bearer ${token}` } }
       )
       if (!tr.ok) continue
-      const thread = await tr.json() as { messages?: { id: string; threadId: string; internalDate: string; snippet: string; labelIds?: string[]; payload?: { headers?: { name: string; value: string }[] } }[] }
+      const thread = await tr.json() as { messages?: { id: string; threadId: string; internalDate: string; snippet: string; labelIds?: string[]; payload?: GmailPayload }[] }
       for (const msg of thread.messages || []) {
         if (seenIds.has(msg.id)) continue; seenIds.add(msg.id)
         const h: Record<string, string> = {}
         ;(msg.payload?.headers || []).forEach(x => { h[x.name.toLowerCase()] = x.value })
         const from = h['from'] || ''
+        const body = msg.payload ? extractGmailBody(msg.payload) : ''
         const direction: 'outgoing' | 'incoming' =
           (msg.labelIds || []).includes('SENT') || (gmailEmail && from.toLowerCase().includes(gmailEmail.toLowerCase()))
             ? 'outgoing' : 'incoming'
-        messages.push({ id: msg.id, threadId: msg.threadId, date: parseInt(msg.internalDate, 10) || 0, from, to: h['to'] || '', subject: h['subject'] || '(no subject)', snippet: msg.snippet || '', direction, classification: classifyMessage(h['subject'] || '', msg.snippet || '', direction) })
+        const fullText = body || msg.snippet || ''
+        messages.push({ id: msg.id, threadId: msg.threadId, messageId: h['message-id'] || undefined, date: parseInt(msg.internalDate, 10) || 0, from, to: h['to'] || '', subject: h['subject'] || '(no subject)', snippet: msg.snippet || '', body: body || undefined, direction, classification: classifyMessage(h['subject'] || '', fullText, direction) })
       }
     }
   } else {
     for (const conversationId of threadIds) {
-      const params = new URLSearchParams({ '$filter': `conversationId eq '${conversationId}'`, '$select': 'id,subject,from,toRecipients,receivedDateTime,bodyPreview,conversationId', '$orderby': 'receivedDateTime asc' })
+      const params = new URLSearchParams({ '$filter': `conversationId eq '${conversationId}'`, '$select': 'id,subject,from,toRecipients,receivedDateTime,bodyPreview,body,conversationId', '$orderby': 'receivedDateTime asc' })
       const r = await fetch(`https://graph.microsoft.com/v1.0/me/messages?${params}`, { headers: { Authorization: `Bearer ${token}` } })
       if (!r.ok) continue
-      const data = await r.json() as { value?: { id: string; subject: string; from: { emailAddress: { address: string } }; toRecipients: { emailAddress: { address: string } }[]; receivedDateTime: string; bodyPreview: string; conversationId: string }[] }
+      const data = await r.json() as { value?: { id: string; subject: string; from: { emailAddress: { address: string } }; toRecipients: { emailAddress: { address: string } }[]; receivedDateTime: string; bodyPreview: string; body?: { content?: string; contentType?: string }; conversationId: string }[] }
       for (const m of data.value || []) {
         if (seenIds.has(m.id)) continue; seenIds.add(m.id)
         const from = m.from?.emailAddress?.address || ''
+        const rawBody = m.body?.content || ''
+        const body = !rawBody ? '' : m.body?.contentType === 'text'
+          ? rawBody
+          : new DOMParser().parseFromString(rawBody, 'text/html').body.textContent?.trim() ?? ''
         const direction = !outlookEmail ? 'unknown' as const : from.toLowerCase() === outlookEmail.toLowerCase() ? 'outgoing' as const : 'incoming' as const
-        messages.push({ id: m.id, threadId: m.conversationId, date: new Date(m.receivedDateTime).getTime(), from, to: m.toRecipients?.[0]?.emailAddress?.address || '', subject: m.subject || '(no subject)', snippet: m.bodyPreview || '', direction, classification: classifyMessage(m.subject || '', m.bodyPreview || '', direction) })
+        const fullText = body || m.bodyPreview || ''
+        messages.push({ id: m.id, threadId: m.conversationId, date: new Date(m.receivedDateTime).getTime(), from, to: m.toRecipients?.[0]?.emailAddress?.address || '', subject: m.subject || '(no subject)', snippet: m.bodyPreview || '', body: body || undefined, direction, classification: classifyMessage(m.subject || '', fullText, direction) })
       }
     }
   }
@@ -163,36 +204,79 @@ function AppDialog({ open, initial, views, onClose, onSave }: AppDialogProps) {
   }
 
   return (
-    <dialog ref={ref}>
-      <form onSubmit={handleSubmit}>
-        <h3>{isEdit ? 'Edit application' : 'New application'}</h3>
+    <dialog ref={ref} style={{ maxWidth: 560, padding: 0, overflow: 'hidden' }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', padding: 0, gap: 0 }}>
         <input type="hidden" name="id" defaultValue={initial?.id ?? ''} key={initial?.id} />
         <input type="hidden" name="source_job_id" defaultValue={initial?.source_job_id ?? ''} />
-        <label>Company<input name="company" required defaultValue={initial?.company ?? ''} key={`co-${initial?.id}`} /></label>
-        <label>Role<input name="role" required defaultValue={initial?.role ?? ''} key={`ro-${initial?.id}`} /></label>
-        <label>Status
-          <select name="status" defaultValue={initial?.status ?? 'draft'} key={`st-${initial?.id}`}>
-            {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-        </label>
-        {views.length > 0 && (
-          <label>Intention
-            <select name="view_id" defaultValue={initial?.view_id ?? ''} key={`vi-${initial?.id}`} style={{ width: 'auto' }}>
-              <option value="">— None —</option>
-              {views.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-edge">
+          <span className="text-sm font-semibold text-hi">{isEdit ? 'Edit application' : 'New application'}</span>
+          <button type="button" className="ghost" style={{ padding: '2px 8px', fontSize: 13 }} onClick={onClose}>✕</button>
+        </div>
+
+        {/* Fields */}
+        <div className="px-5 py-4 flex flex-col gap-3 overflow-y-auto" style={{ maxHeight: '70vh' }}>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-xs text-lo">Company
+              <input name="company" required defaultValue={initial?.company ?? ''} key={`co-${initial?.id}`} placeholder="e.g. Spotify" />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-lo">Role
+              <input name="role" required defaultValue={initial?.role ?? ''} key={`ro-${initial?.id}`} placeholder="e.g. Frontend Developer" />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-xs text-lo">Status
+              <select name="status" defaultValue={initial?.status ?? 'draft'} key={`st-${initial?.id}`}>
+                {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </label>
+            {views.length > 0 && (
+              <label className="flex flex-col gap-1 text-xs text-lo">Intention
+                <select name="view_id" defaultValue={initial?.view_id ?? ''} key={`vi-${initial?.id}`}>
+                  <option value="">— None —</option>
+                  {views.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              </label>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <label className="flex flex-col gap-1 text-xs text-lo">Date applied
+              <input type="date" name="applied_at" defaultValue={initial?.applied_at ?? new Date().toISOString().slice(0, 10)} key={`ap-${initial?.id}`} />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-lo">Last contact
+              <input type="date" name="last_contact_at" defaultValue={initial?.last_contact_at ?? ''} key={`lc-${initial?.id}`} />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-lo">Follow-up date
+              <input type="date" name="follow_up_at" defaultValue={initial?.follow_up_at ?? ''} key={`fu-${initial?.id}`} />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-xs text-lo">Contact name
+              <input name="contact_name" defaultValue={initial?.contact_name ?? ''} key={`cn-${initial?.id}`} placeholder="e.g. Julia" />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-lo">Contact email
+              <input type="email" name="contact_email" defaultValue={initial?.contact_email ?? ''} key={`ce-${initial?.id}`} placeholder="recruiter@company.com" />
+            </label>
+          </div>
+
+          <label className="flex flex-col gap-1 text-xs text-lo">Job link
+            <input type="url" name="link" placeholder="https://…" defaultValue={initial?.link ?? ''} key={`li-${initial?.id}`} />
           </label>
-        )}
-        <label>Date applied<input type="date" name="applied_at" defaultValue={initial?.applied_at ?? new Date().toISOString().slice(0, 10)} key={`ap-${initial?.id}`} /></label>
-        <label>Last contact<input type="date" name="last_contact_at" defaultValue={initial?.last_contact_at ?? ''} key={`lc-${initial?.id}`} /></label>
-        <label>Contact name<input name="contact_name" defaultValue={initial?.contact_name ?? ''} key={`cn-${initial?.id}`} /></label>
-        <label>Contact email<input type="email" name="contact_email" defaultValue={initial?.contact_email ?? ''} key={`ce-${initial?.id}`} /></label>
-        <label>Job link<input type="url" name="link" placeholder="https://…" defaultValue={initial?.link ?? ''} key={`li-${initial?.id}`} /></label>
-        <label>Notes<textarea name="notes" rows={4} defaultValue={initial?.notes ?? ''} key={`no-${initial?.id}`} /></label>
-        <menu>
+
+          <label className="flex flex-col gap-1 text-xs text-lo">Notes
+            <textarea name="notes" rows={4} defaultValue={initial?.notes ?? ''} key={`no-${initial?.id}`} placeholder="Any notes about this application…" />
+          </label>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-edge bg-raised/30">
           <button type="button" className="ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="primary">Save</button>
-        </menu>
+        </div>
       </form>
     </dialog>
   )
@@ -270,7 +354,7 @@ interface ComposeDialogProps {
 }
 
 function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
-  const { state, toast } = useStore()
+  const { state, update, toast } = useStore()
   const ref = useDialog(open, onClose)
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
@@ -289,6 +373,8 @@ function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
   const coverLetterTemplates = state.templates.filter(t => (t.type ?? 'email') === 'cover_letter')
 
   function buildVars(filesText: string): Record<string, string> {
+    const linkVars = (state.settings.links ?? []).filter(l => l.label && l.url)
+      .reduce((acc, l) => { acc[linkVar(l.label)] = l.url; return acc }, {} as Record<string, string>)
     return {
       company: app?.company ?? '', role: app?.role ?? '',
       contact_name: app?.contact_name || 'there',
@@ -299,8 +385,8 @@ function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
       my_phone: state.settings.phone ?? '',
       my_address: [state.settings.street, state.settings.city, state.settings.postal_code, state.settings.country].filter(Boolean).join(', '),
       my_linkedin: state.settings.linkedin ?? '',
-      my_links: (state.settings.links ?? []).filter(l => l.label && l.url).map(l => `${l.label}: ${l.url}`).join('\n'),
       files: filesText,
+      ...linkVars,
     }
   }
 
@@ -366,7 +452,8 @@ function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
     ]
     setSending(true)
     try {
-      const token = mailState.token
+      const token = await ensureToken(provider, state, update)
+      if (!token) { toast('Session expired — reconnect in Settings', 'error'); setSending(false); return }
       if (provider === 'gmail') {
         const from = mailState.user_email ? `${state.settings.name} <${mailState.user_email}>` : mailState.user_email
         const encoded = buildGmailRaw(from, to, subject, body, attachedFiles)
@@ -428,77 +515,136 @@ function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
     catch { toast('Copy failed', 'error') }
   }
 
+  const attachableFiles = state.files.filter(f => ATTACHABLE_TYPES.has(f.type))
+  const [attachOpen, setAttachOpen] = useState(false)
+  const [clOpen, setClOpen] = useState(false)
+
   return (
-    <dialog ref={ref}>
-      <form onSubmit={e => { e.preventDefault(); sendViaAPI() }}>
-        <h3>Compose email</h3>
+    <dialog ref={ref} style={{ maxWidth: 640, padding: 0, overflow: 'hidden' }}>
+      <form onSubmit={e => { e.preventDefault(); sendViaAPI() }} style={{ display: 'flex', flexDirection: 'column', padding: 0, gap: 0 }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-edge">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-semibold text-hi">{app?.contact_name || app?.contact_email || 'New message'}</span>
+            {app && <span className="text-xs text-lo">{app.role} · {app.company}</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            {(gmailOk || outlookOk) && (
+              <select value={provider} className="text-xs bg-raised border border-edge rounded-md px-2 py-1 text-lo" style={{ width: 'auto' }} onChange={e => setProvider(e.target.value as MailProvider)}>
+                {gmailOk   && <option value="gmail">Gmail</option>}
+                {outlookOk && <option value="outlook">Outlook</option>}
+              </select>
+            )}
+            <button type="button" className="ghost" style={{ padding: '2px 8px', fontSize: 13 }} onClick={onClose}>✕</button>
+          </div>
+        </div>
+
         {!connected && (
-          <div className="text-lo text-[13px] m-0 mb-4" style={{ marginBottom: 8, color: 'var(--warning, #f59e0b)' }}>
-            No email account connected — go to Data to connect Gmail or Outlook first.
+          <div className="px-5 py-2 text-xs bg-warn/10 border-b border-warn/30" style={{ color: 'var(--warning, #f59e0b)' }}>
+            No email account connected — go to Settings to connect Gmail or Outlook first.
           </div>
         )}
-        <label>Email template
-          <select onChange={e => applyTemplate(e.target.value)}>
-            <option value="">— blank —</option>
+
+        {/* Email header rows */}
+        <div className="border-b border-edge">
+          <div className="flex items-center gap-3 px-5 py-2 border-b border-edge/50">
+            <span className="text-xs text-lo w-10 shrink-0">From</span>
+            <span className="text-sm text-hi/80">{mailState.user_email || (connected ? '…' : '—')}</span>
+          </div>
+          <div className="flex items-center gap-3 px-5 py-2 border-b border-edge/50">
+            <span className="text-xs text-lo w-10 shrink-0">To</span>
+            <span className="text-sm text-hi/80">{app?.contact_email || '—'}</span>
+          </div>
+          <div className="flex items-center gap-3 px-5 py-2">
+            <span className="text-xs text-lo w-10 shrink-0">Subject</span>
+            <input
+              required
+              value={subject}
+              onChange={e => setSubject(e.target.value)}
+              placeholder="Subject"
+              className="flex-1 bg-transparent border-none outline-none text-sm text-hi placeholder:text-lo/40 p-0"
+              style={{ boxShadow: 'none' }}
+            />
+          </div>
+        </div>
+
+        {/* Toolbar */}
+        <div className="flex items-center gap-2 px-5 py-2 border-b border-edge bg-raised/30">
+          <select className="text-xs bg-transparent border border-edge rounded-md px-2 py-1 text-lo" style={{ width: 'auto' }} onChange={e => applyTemplate(e.target.value)}>
+            <option value="">Template…</option>
             {state.templates.filter(t => (t.type ?? 'email') === 'email').map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
-        </label>
-        {coverLetterTemplates.length > 0 && (
-          <label>Cover letter
-            <select value={coverLetterId} onChange={e => applyCoverLetter(e.target.value)}>
-              <option value="">— none —</option>
+          {coverLetterTemplates.length > 0 && (
+            <select className="text-xs bg-transparent border border-edge rounded-md px-2 py-1 text-lo" style={{ width: 'auto' }} value={coverLetterId} onChange={e => { applyCoverLetter(e.target.value); if (e.target.value) setClOpen(true) }}>
+              <option value="">Cover letter…</option>
               {coverLetterTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
-          </label>
+          )}
+          <button type="button" className="ghost ml-auto flex items-center gap-1 text-xs" style={{ padding: '2px 8px' }} onClick={() => setAttachOpen(o => !o)}>
+            📎 {selectedFiles.length + (pdfAttachment ? 1 : 0) > 0 ? `${selectedFiles.length + (pdfAttachment ? 1 : 0)} attached` : 'Attach'}
+          </button>
+        </div>
+
+        {/* Attachments panel */}
+        {attachOpen && (
+          <div className="px-5 py-3 border-b border-edge bg-canvas">
+            {attachableFiles.length === 0
+              ? <span className="text-xs text-lo">No attachable files — add PDFs or docs in the Files tab.</span>
+              : <div className="flex flex-col gap-1">
+                  {attachableFiles.map(f => (
+                    <label key={f.id} className="flex-row items-center gap-2 text-xs text-hi cursor-pointer">
+                      <input type="checkbox" checked={selectedFiles.includes(f.id)} style={{ width: 'auto' }}
+                        onChange={e => setSelectedFiles(prev => e.target.checked ? [...prev, f.id] : prev.filter(x => x !== f.id))} />
+                      {f.label} <span className="text-lo">({f.filename})</span>
+                    </label>
+                  ))}
+                </div>
+            }
+          </div>
         )}
-        {coverLetterBody && (
-          <div className="flex flex-col gap-2">
-            <textarea
-              className="text-[12px]"
-              rows={6}
-              value={coverLetterBody}
-              onChange={e => { setCoverLetterBody(e.target.value); setPdfAttachment(null) }}
-            />
+
+        {/* Cover letter panel */}
+        {clOpen && coverLetterBody && (
+          <div className="px-5 py-3 border-b border-edge bg-canvas flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-lo">Cover letter</span>
+              <button type="button" className="ghost" style={{ padding: '1px 6px', fontSize: 11 }} onClick={() => { setClOpen(false); applyCoverLetter('') }}>✕</button>
+            </div>
+            <textarea className="text-[12px]" rows={5} value={coverLetterBody} onChange={e => { setCoverLetterBody(e.target.value); setPdfAttachment(null) }} />
             <div className="flex items-center gap-2">
-              <button type="button" onClick={generateCoverLetterPDF} disabled={generatingPdf}>
+              <button type="button" onClick={generateCoverLetterPDF} disabled={generatingPdf} style={{ fontSize: 12 }}>
                 {generatingPdf ? 'Generating…' : pdfAttachment ? '↺ Regenerate PDF' : 'Attach as PDF'}
               </button>
               {pdfAttachment && <span className="text-xs text-success">✓ {pdfAttachment.filename}</span>}
             </div>
           </div>
         )}
-        <label>Attach files
-          <div className="flex flex-col gap-1 bg-canvas border border-edge rounded-lg p-2 max-h-[120px] overflow-y-auto">
-            {state.files.filter(f => ATTACHABLE_TYPES.has(f.type)).length === 0
-              ? <span className="text-lo font-normal text-xs">No attachable files. Add PDF, Word, or image files in the Files tab.</span>
-              : state.files.filter(f => ATTACHABLE_TYPES.has(f.type)).map(f => (
-                <label key={f.id} className="flex-row items-center gap-1.5 text-hi">
-                  <input type="checkbox" checked={selectedFiles.includes(f.id)} style={{ width: 'auto' }}
-                    onChange={e => setSelectedFiles(prev => e.target.checked ? [...prev, f.id] : prev.filter(x => x !== f.id))} />
-                  {f.label} <span className="text-lo font-normal text-xs">({f.filename})</span>
-                </label>
-              ))}
+
+        {/* Body */}
+        <div className="px-5 py-4">
+          <textarea
+            required
+            rows={14}
+            value={body}
+            onChange={e => setBody(e.target.value)}
+            placeholder="Write your message…"
+            className="w-full rounded-lg border border-edge bg-canvas"
+            style={{ resize: 'vertical', outline: 'none', boxShadow: 'none', padding: '12px 14px', fontSize: 13, lineHeight: 1.6 }}
+          />
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-edge bg-raised/30 flex-wrap">
+          <button type="button" className="ghost text-xs shrink-0" onClick={copyBody}>Copy body</button>
+          <div className="flex gap-2 shrink-0">
+            <button type="button" className="ghost" onClick={onClose}>Cancel</button>
+            <button type="submit" className="primary" disabled={sending || !connected}>
+              {sending ? 'Sending…' : `Send via ${provider === 'outlook' ? 'Outlook' : 'Gmail'}`}
+            </button>
           </div>
-        </label>
-        {(gmailOk || outlookOk) && (
-          <label>Send via
-            <select value={provider} style={{ width: 'auto' }} onChange={e => setProvider(e.target.value as MailProvider)}>
-              {gmailOk   && <option value="gmail">Gmail ({state.mail.gmail.user_email})</option>}
-              {outlookOk && <option value="outlook">Outlook ({state.mail.outlook.user_email})</option>}
-            </select>
-          </label>
-        )}
-        <label>From<input readOnly value={mailState.user_email || (connected ? '…' : 'Not connected')} /></label>
-        <label>To<input type="email" value={app?.contact_email ?? ''} readOnly /></label>
-        <label>Subject<input required value={subject} onChange={e => setSubject(e.target.value)} /></label>
-        <label>Body<textarea rows={12} required value={body} onChange={e => setBody(e.target.value)} /></label>
-        <menu>
-          <button type="button" className="ghost" onClick={onClose}>Cancel</button>
-          <button type="button" className="ghost" onClick={copyBody}>Copy body</button>
-          <button type="submit" className="primary" disabled={sending || !connected}>
-            {sending ? 'Sending…' : `Send via ${provider === 'outlook' ? 'Outlook' : 'Gmail'}`}
-          </button>
-        </menu>
+        </div>
+
       </form>
     </dialog>
   )
@@ -518,6 +664,17 @@ function EmailsDialog({ open, app, onClose }: EmailsDialogProps) {
   const [syncing, setSyncing] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [aiResult, setAiResult] = useState<{ status: string; comment: string } | null>(null)
+  const [expandedEmails, setExpandedEmails] = useState<Set<string>>(new Set())
+  const [replyTarget, setReplyTarget] = useState<EmailRecord | null>(null)
+  const [replyBody, setReplyBody] = useState('')
+  const [replyTplId, setReplyTplId] = useState('')
+  const [replyFiles, setReplyFiles] = useState<string[]>([])
+  const [replyCoverLetterId, setReplyCoverLetterId] = useState('')
+  const [replyCoverLetterBody, setReplyCoverLetterBody] = useState('')
+  const [replyPdfAttachment, setReplyPdfAttachment] = useState<FileRecord | null>(null)
+  const [replyGeneratingPdf, setReplyGeneratingPdf] = useState(false)
+  const [replySending, setReplySending] = useState(false)
+  const [replyAttachOpen, setReplyAttachOpen] = useState(false)
 
   const emails: EmailRecord[] = app ? (state.emails[app.id] || []) : []
   const suggested = suggestStatus(emails)
@@ -532,49 +689,191 @@ function EmailsDialog({ open, app, onClose }: EmailsDialogProps) {
     if (!isConnected(mailState)) { toast(`Connect ${provider === 'outlook' ? 'Outlook' : 'Gmail'} in Data settings first`, 'error'); return }
     setSyncing(true)
     try {
-      const messages = await fetchEmailsForApp(app, provider, mailState.token, state.mail.gmail.user_email, state.mail.outlook.user_email)
+      const token = await ensureToken(provider, state, update)
+      if (!token) { toast('Session expired — reconnect in Settings', 'error'); setSyncing(false); return }
+      const messages = await fetchEmailsForApp(app, provider, token, state.mail.gmail.user_email, state.mail.outlook.user_email)
       update(s => {
         s.emails[app.id] = messages
         const a = s.applications.find(x => x.id === app.id)
         if (a) a.sync_provider = provider
       })
+      if (messages.length) setExpandedEmails(new Set([messages[messages.length - 1].id]))
       toast(messages.length
         ? `Synced ${messages.length} email${messages.length !== 1 ? 's' : ''} across ${threadIds.length} thread${threadIds.length !== 1 ? 's' : ''}`
         : 'No replies yet in your tracked threads', messages.length ? 'success' : undefined)
+
+      if (messages.length && state.settings.openrouter_key && state.settings.openrouter_model) {
+        setSyncing(false)
+        setAnalyzing(true)
+        try {
+          const emailText = messages.map(e => `[${new Date(e.date).toLocaleDateString()}] ${e.direction === 'outgoing' ? 'Sent' : 'Received'} — ${e.subject}\n${(e.body ?? e.snippet).slice(0, 2000)}`).join('\n\n')
+          const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${state.settings.openrouter_key}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: state.settings.openrouter_model,
+              messages: [
+                { role: 'system', content: AI_SYSTEM_PROMPT },
+                { role: 'user', content: `Application: ${app.role} at ${app.company}\n\nEmails:\n${emailText}` },
+              ],
+            }),
+          })
+          if (res.ok) {
+            const data = await res.json() as { choices?: { message?: { content?: string } }[]; error?: { message?: string } }
+            if (!data.error?.message) {
+              const raw = data.choices?.[0]?.message?.content || ''
+              const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || '{}') as { status?: string; comment?: string }
+              if (parsed.status) setAiResult({ status: parsed.status, comment: parsed.comment || '' })
+            }
+          }
+        } catch { /* silent — AI is best-effort */ }
+        finally { setAnalyzing(false) }
+      }
     } catch (e) { toast((e as Error).message, 'error') }
-    finally { setSyncing(false) }
+    finally { setSyncing(false); setAnalyzing(false) }
   }
 
-  async function analyzeWithAI() {
-    if (!emails.length) { toast('Sync emails first', 'error'); return }
-    if (!state.settings.openrouter_key) { toast('Add an OpenRouter API key in Data settings', 'error'); return }
-    if (!state.settings.openrouter_model) { toast('Pick a model in Data settings', 'error'); return }
-    setAnalyzing(true)
+  const coverLetterTemplates = state.templates.filter(t => (t.type ?? 'email') === 'cover_letter')
+
+  function applyCoverLetterReply(tplId: string) {
+    setReplyCoverLetterId(tplId)
+    setReplyPdfAttachment(null)
+    if (!tplId) { setReplyCoverLetterBody(''); return }
+    const tpl = state.templates.find(t => t.id === tplId)
+    if (!tpl) { setReplyCoverLetterBody(''); return }
+    const vars: Record<string, string> = {
+      company: app?.company ?? '', role: app?.role ?? '',
+      contact_name: app?.contact_name || 'there',
+      my_name: state.settings.name ?? '', my_last_name: state.settings.last_name ?? '',
+      my_full_name: [state.settings.name, state.settings.last_name].filter(Boolean).join(' '),
+      my_email: state.settings.email ?? '', my_phone: state.settings.phone ?? '',
+      my_address: [state.settings.street, state.settings.city, state.settings.postal_code, state.settings.country].filter(Boolean).join(', '),
+      my_linkedin: state.settings.linkedin ?? '',
+      files: '',
+      ...(state.settings.links ?? []).filter(l => l.label && l.url).reduce((acc, l) => { acc[linkVar(l.label)] = l.url; return acc }, {} as Record<string, string>),
+    }
+    setReplyCoverLetterBody(tpl.body.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? `{{${k}}}`))
+  }
+
+  async function generateReplyCoverLetterPDF() {
+    if (!replyCoverLetterBody) return
+    setReplyGeneratingPdf(true)
     try {
-      const emailText = emails.map(e => `[${new Date(e.date).toLocaleDateString()}] ${e.direction === 'outgoing' ? 'Sent' : 'Received'} — ${e.subject}\n${e.snippet}`).join('\n\n')
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${state.settings.openrouter_key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: state.settings.openrouter_model,
-          messages: [
-            { role: 'system', content: AI_SYSTEM_PROMPT },
-            { role: 'user', content: `Application: ${app?.role} at ${app?.company}\n\nEmails:\n${emailText}` },
-          ],
-        }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { error?: { message?: string } }
-        throw new Error(err.error?.message || `OpenRouter ${res.status}`)
+      const { jsPDF } = await import('jspdf')
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const margin = 20
+      const maxWidth = doc.internal.pageSize.getWidth() - margin * 2
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(11)
+      const lines = doc.splitTextToSize(replyCoverLetterBody, maxWidth)
+      let y = margin + 5
+      for (const line of lines) {
+        if (y > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin }
+        doc.text(line, margin, y)
+        y += 6
       }
-      const data = await res.json() as { choices?: { message?: { content?: string } }[]; error?: { message?: string } }
-      if (data.error?.message) throw new Error(data.error.message)
-      const raw = data.choices?.[0]?.message?.content || ''
-      const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || '{}') as { status?: string; comment?: string }
-      if (!parsed.status) throw new Error(`unexpected AI response: ${raw.slice(0, 120)}`)
-      setAiResult({ status: parsed.status, comment: parsed.comment || '' })
-    } catch (e) { toast(`AI error: ${(e as Error).message}`, 'error') }
-    finally { setAnalyzing(false) }
+      const dataUrl = doc.output('datauristring')
+      const filename = `cover-letter-${(app?.company || 'application').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`
+      setReplyPdfAttachment({ id: 'reply-cl-pdf', label: 'Cover letter', description: '', filename, data_url: dataUrl, size: Math.round((dataUrl.length - 28) * 0.75), type: 'application/pdf', uploaded_at: new Date().toISOString() })
+      toast('Cover letter PDF attached', 'success')
+    } catch (e) {
+      toast(`PDF error: ${(e as Error).message}`, 'error')
+    } finally {
+      setReplyGeneratingPdf(false)
+    }
+  }
+
+  async function sendReply() {
+    if (!replyTarget || !app) return
+    if (!replyBody.trim()) { toast('Reply body is empty', 'error'); return }
+    const token = await ensureToken(provider, state, update)
+    if (!token) { toast('Session expired — reconnect in Settings', 'error'); return }
+    setReplySending(true)
+    const subject = replyTarget.subject.startsWith('Re:') ? replyTarget.subject : `Re: ${replyTarget.subject}`
+    const to = /<(.+)>/.exec(replyTarget.from)?.[1] ?? replyTarget.from
+    const attachedFiles = [
+      ...(replyPdfAttachment ? [replyPdfAttachment] : []),
+      ...replyFiles.map(id => state.files.find(f => f.id === id)).filter(Boolean) as FileRecord[],
+    ]
+    try {
+      if (provider === 'gmail') {
+        const from = mailState.user_email ? `${state.settings.name} <${mailState.user_email}>` : mailState.user_email
+        const encoded = buildGmailRaw(from, to, subject, replyBody, attachedFiles, replyTarget.messageId)
+        const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ raw: encoded, threadId: replyTarget.threadId }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { error?: { message?: string } }
+          throw new Error(err.error?.message || `Gmail ${res.status}`)
+        }
+      } else if (attachedFiles.length === 0) {
+        const res = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${replyTarget.id}/reply`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ comment: replyBody }),
+        })
+        if (!res.ok && res.status !== 202) {
+          const err = await res.json().catch(() => ({})) as { error?: { message?: string } }
+          throw new Error(err.error?.message || `Graph ${res.status}`)
+        }
+      } else {
+        // createReply draft → patch body → attach files → send
+        const draftRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${replyTarget.id}/createReply`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+        if (!draftRes.ok) {
+          const err = await draftRes.json().catch(() => ({})) as { error?: { message?: string } }
+          throw new Error(err.error?.message || `Graph ${draftRes.status}`)
+        }
+        const draft = await draftRes.json() as { id?: string }
+        if (!draft.id) throw new Error('No draft ID returned')
+        await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draft.id}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: { contentType: 'Text', content: replyBody } }),
+        })
+        for (const f of attachedFiles) {
+          await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draft.id}/attachments`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              '@odata.type': '#microsoft.graph.fileAttachment',
+              name: f.filename,
+              contentType: f.type,
+              contentBytes: f.data_url.split(',')[1] ?? '',
+            }),
+          })
+        }
+        const sendRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draft.id}/send`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!sendRes.ok && sendRes.status !== 202) {
+          const err = await sendRes.json().catch(() => ({})) as { error?: { message?: string } }
+          throw new Error(err.error?.message || `Graph ${sendRes.status}`)
+        }
+      }
+      update(s => {
+        const a = s.applications.find(x => x.id === app.id)
+        if (a) { a.last_contact_at = new Date().toISOString().slice(0, 10); a.follow_up_at = '' }
+      })
+      toast(`Reply sent via ${providerLabel}`, 'success')
+      setReplyTarget(null)
+      setReplyBody('')
+      setReplyTplId('')
+      setReplyFiles([])
+      setReplyCoverLetterId('')
+      setReplyCoverLetterBody('')
+      setReplyPdfAttachment(null)
+      setReplyAttachOpen(false)
+    } catch (e) {
+      toast(`Send failed: ${(e as Error).message}`, 'error')
+    } finally {
+      setReplySending(false)
+    }
   }
 
   function applyStatus(status: string) {
@@ -600,14 +899,9 @@ function EmailsDialog({ open, app, onClose }: EmailsDialogProps) {
         <div className="flex justify-between items-center gap-3">
           <h3 className="m-0 text-base font-semibold">{app ? `${app.company} — ${app.role}` : 'Email history'}</h3>
           <div className="flex gap-1.5">
-            <button className="primary" onClick={syncEmails} disabled={syncing}>
-              {syncing ? 'Syncing…' : `Sync from ${providerLabel}`}
+            <button className="primary" onClick={syncEmails} disabled={syncing || analyzing}>
+              {syncing ? 'Syncing…' : analyzing ? '✦ Analyzing…' : `Sync from ${providerLabel}`}
             </button>
-            {emails.length > 0 && (
-              <button onClick={analyzeWithAI} disabled={analyzing}>
-                {analyzing ? 'Analyzing…' : '✦ AI analyze'}
-              </button>
-            )}
             <button className="ghost" onClick={onClose}>Close</button>
           </div>
         </div>
@@ -639,9 +933,16 @@ function EmailsDialog({ open, app, onClose }: EmailsDialogProps) {
             ? <p className="text-center text-lo p-10 bg-surface rounded-lg border border-dashed border-edge">No emails synced yet.</p>
             : emails.map((e, i) => {
               const isOut = e.direction === 'outgoing'
+              const expanded = expandedEmails.has(e.id)
+              const toggle = () => setExpandedEmails(prev => {
+                const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n
+              })
               return (
                 <div key={e.id} className={`email-item ${e.direction} ${e.classification}`}>
-                  <div className="flex justify-between items-center gap-2 text-xs text-lo mb-1.5">
+                  <div
+                    className="flex justify-between items-center gap-2 text-xs text-lo cursor-pointer select-none"
+                    onClick={toggle}
+                  >
                     <span className="flex items-center gap-[5px] text-xs font-medium">
                       {isOut
                         ? <><span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded-full text-[11px] font-bold shrink-0 bg-hi/10 text-lo">↑</span> You → {e.to}</>
@@ -652,16 +953,134 @@ function EmailsDialog({ open, app, onClose }: EmailsDialogProps) {
                         <span className="inline-block px-2 py-[2px] rounded-full text-[11px] bg-raised text-lo">{e.classification}</span>
                       )}
                       <span>{new Date(e.date).toLocaleString()}</span>
+                      <span className="text-[10px] opacity-50">{expanded ? '▲' : '▼'}</span>
                     </span>
                   </div>
-                  <div className="font-semibold text-hi text-[13px] mb-1">{e.subject}</div>
-                  <div className="text-xs text-lo leading-relaxed">{e.snippet.replace(/&#39;/g, "'").replace(/&amp;/g, '&')}</div>
+                  {expanded && (
+                    <>
+                      <div className="flex items-start justify-between gap-2 mt-1.5">
+                        <div className="font-semibold text-hi text-[13px] mb-1">{e.subject}</div>
+                        <button
+                          className="ghost shrink-0"
+                          style={{ padding: '1px 8px', fontSize: 11, marginTop: -1 }}
+                          onClick={ev => { ev.stopPropagation(); setReplyTarget(e); setReplyBody(''); setReplyTplId('') }}
+                        >↩ Reply</button>
+                      </div>
+                      <div className="text-xs text-lo leading-relaxed whitespace-pre-wrap">{(e.body ?? e.snippet.replace(/&#39;/g, "'").replace(/&amp;/g, '&')).trim()}</div>
+                    </>
+                  )}
+                  {!expanded && (
+                    <div className="text-xs text-lo truncate mt-1 opacity-70">{e.subject}</div>
+                  )}
                   {i < emails.length - 1 && <div className="absolute left-5 bottom-[-10px] w-[2px] h-[10px] bg-edge" />}
                 </div>
               )
             })
           }
         </div>
+        {replyTarget && (
+          <div className="border border-edge rounded-xl overflow-hidden bg-surface flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-hi">{replyTarget.subject.startsWith('Re:') ? replyTarget.subject : `Re: ${replyTarget.subject}`}</span>
+                <span className="text-xs text-lo">To: {/<(.+)>/.exec(replyTarget.from)?.[1] ?? replyTarget.from}</span>
+              </div>
+              <button className="ghost" style={{ padding: '2px 8px', fontSize: 13 }} onClick={() => { setReplyTarget(null); setReplyBody(''); setReplyTplId(''); setReplyFiles([]); setReplyCoverLetterId(''); setReplyCoverLetterBody(''); setReplyPdfAttachment(null); setReplyAttachOpen(false) }}>✕</button>
+            </div>
+
+            {/* Toolbar */}
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-edge bg-raised/30">
+              <select className="text-xs bg-transparent border border-edge rounded-md px-2 py-1 text-lo" style={{ width: 'auto' }} value={replyTplId} onChange={e => {
+                const id = e.target.value; setReplyTplId(id)
+                if (id) {
+                  const tpl = state.templates.find(t => t.id === id)
+                  if (tpl) {
+                    const fileNames = replyFiles.map(fid => state.files.find(f => f.id === fid)?.filename).filter(Boolean).join(', ') || '(none)'
+                    const vars: Record<string, string> = {
+                      company: app?.company ?? '', role: app?.role ?? '',
+                      contact_name: app?.contact_name || 'there',
+                      my_name: state.settings.name ?? '', my_last_name: state.settings.last_name ?? '',
+                      my_full_name: [state.settings.name, state.settings.last_name].filter(Boolean).join(' '),
+                      my_email: state.settings.email ?? '', my_phone: state.settings.phone ?? '',
+                      my_address: [state.settings.street, state.settings.city, state.settings.postal_code, state.settings.country].filter(Boolean).join(', '),
+                      my_linkedin: state.settings.linkedin ?? '',
+                      files: fileNames,
+                      ...(state.settings.links ?? []).filter(l => l.label && l.url).reduce((acc, l) => { acc[linkVar(l.label)] = l.url; return acc }, {} as Record<string, string>),
+                    }
+                    setReplyBody(tpl.body.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? `{{${k}}}`))
+                  }
+                }
+              }}>
+                <option value="">Template…</option>
+                {state.templates.filter(t => (t.type ?? 'email') === 'email').map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              {coverLetterTemplates.length > 0 && (
+                <select className="text-xs bg-transparent border border-edge rounded-md px-2 py-1 text-lo" style={{ width: 'auto' }} value={replyCoverLetterId} onChange={e => { applyCoverLetterReply(e.target.value) }}>
+                  <option value="">Cover letter…</option>
+                  {coverLetterTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              )}
+              {state.files.filter(f => ATTACHABLE_TYPES.has(f.type)).length > 0 && (
+                <button type="button" className="ghost ml-auto flex items-center gap-1 text-xs" style={{ padding: '2px 8px' }}
+                  onClick={() => setReplyAttachOpen(o => !o)}>
+                  📎 {replyFiles.length + (replyPdfAttachment ? 1 : 0) > 0 ? `${replyFiles.length + (replyPdfAttachment ? 1 : 0)} attached` : 'Attach'}
+                </button>
+              )}
+            </div>
+
+            {/* Attach panel */}
+            {state.files.filter(f => ATTACHABLE_TYPES.has(f.type)).length > 0 && replyAttachOpen && (
+              <div className="px-4 py-2 border-b border-edge bg-canvas flex flex-wrap gap-x-4 gap-y-1">
+                {state.files.filter(f => ATTACHABLE_TYPES.has(f.type)).map(f => (
+                  <label key={f.id} className="flex-row items-center gap-1.5 text-xs text-hi cursor-pointer">
+                    <input type="checkbox" checked={replyFiles.includes(f.id)} style={{ width: 'auto' }}
+                      onChange={e => setReplyFiles(prev => e.target.checked ? [...prev, f.id] : prev.filter(x => x !== f.id))} />
+                    {f.label} <span className="text-lo">({f.filename})</span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {/* Cover letter panel */}
+            {replyCoverLetterBody && (
+              <div className="px-4 py-3 border-b border-edge bg-canvas flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-lo">Cover letter</span>
+                  <button type="button" className="ghost" style={{ padding: '1px 6px', fontSize: 11 }} onClick={() => { applyCoverLetterReply('') }}>✕</button>
+                </div>
+                <textarea className="text-[12px]" rows={4} value={replyCoverLetterBody} onChange={e => { setReplyCoverLetterBody(e.target.value); setReplyPdfAttachment(null) }} />
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={generateReplyCoverLetterPDF} disabled={replyGeneratingPdf} style={{ fontSize: 12 }}>
+                    {replyGeneratingPdf ? 'Generating…' : replyPdfAttachment ? '↺ Regenerate PDF' : 'Attach as PDF'}
+                  </button>
+                  {replyPdfAttachment && <span className="text-xs text-success">✓ {replyPdfAttachment.filename}</span>}
+                </div>
+              </div>
+            )}
+
+            {/* Body */}
+            <div className="px-4 py-3">
+              <textarea
+                rows={6}
+                placeholder="Write your reply…"
+                value={replyBody}
+                onChange={e => setReplyBody(e.target.value)}
+                autoFocus
+                className="w-full rounded-lg border border-edge bg-canvas"
+                style={{ resize: 'vertical', outline: 'none', boxShadow: 'none', padding: '10px 12px', fontSize: 13, lineHeight: 1.6 }}
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-edge bg-raised/30">
+              <button className="ghost" onClick={() => { setReplyTarget(null); setReplyBody(''); setReplyTplId(''); setReplyFiles([]); setReplyCoverLetterId(''); setReplyCoverLetterBody(''); setReplyPdfAttachment(null); setReplyAttachOpen(false) }}>Cancel</button>
+              <button className="primary" onClick={sendReply} disabled={replySending || !replyBody.trim()}>
+                {replySending ? 'Sending…' : `Reply via ${providerLabel}`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </dialog>
   )
@@ -746,9 +1165,9 @@ export default function Applications() {
     try {
       await Promise.all(toSync.map(async app => {
         const prov: MailProvider = app.sync_provider ?? state.settings.active_mail_provider
-        const ms = prov === 'gmail' ? state.mail.gmail : state.mail.outlook
-        if (!isConnected(ms)) return
-        const messages = await fetchEmailsForApp(app, prov, ms.token, state.mail.gmail.user_email, state.mail.outlook.user_email)
+        const token = await ensureToken(prov, state, update)
+        if (!token) return
+        const messages = await fetchEmailsForApp(app, prov, token, state.mail.gmail.user_email, state.mail.outlook.user_email)
         update(s => {
           s.emails[app.id] = messages
           const a = s.applications.find(x => x.id === app.id)
@@ -835,6 +1254,7 @@ export default function Applications() {
       const a = s.applications.find(x => x.id === appId)
       if (!a) return
       a.last_contact_at = new Date().toISOString().slice(0, 10)
+      a.follow_up_at = ''
       if (a.status === 'draft') a.status = 'applied'
       if (!a.applied_at) a.applied_at = a.last_contact_at
       a.sync_provider = provider
@@ -865,8 +1285,24 @@ export default function Applications() {
   const scoped = activeView ? state.applications.filter(a => matchesView(a, activeView)) : state.applications
   scoped.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1 })
 
+  const today = new Date().toISOString().slice(0, 10)
+  const dueFollowUps = state.applications.filter(a => a.follow_up_at && a.follow_up_at <= today && a.status !== 'rejected' && a.status !== 'offer')
+
   return (
     <div className="p-6 max-w-[1200px] mx-auto">
+      {dueFollowUps.length > 0 && (
+        <div className="mb-4 flex flex-col gap-2">
+          {dueFollowUps.map(a => (
+            <div key={a.id} className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-warn/10 border border-warn/30 text-[13px]">
+              <span>⏰ Follow up with <strong>{a.company}</strong> — {a.role}</span>
+              <div className="flex gap-1.5 shrink-0">
+                <button className="ghost" style={{ fontSize: 11, padding: '1px 8px' }} onClick={() => { setEmailsApp(a); setEmailsOpen(true) }}>Open emails</button>
+                <button className="ghost" style={{ fontSize: 11, padding: '1px 8px' }} onClick={() => update(s => { const x = s.applications.find(x => x.id === a.id); if (x) x.follow_up_at = '' })}>Dismiss</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
         <h2 className="m-0 text-base font-semibold">Applications</h2>
         <div className="flex gap-2 items-center flex-wrap">

@@ -6,28 +6,52 @@ import type { Template } from '../types'
 
 type TplType = 'email' | 'cover_letter'
 
-const PLACEHOLDER_GROUPS = [
+export function linkVar(label: string) {
+  return `my_link_${label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`
+}
+
+const BASE_GROUPS: { label: string; items: { tag: string; display: string }[] }[] = [
   {
     label: 'Application',
-    items: ['{{company}}', '{{role}}', '{{contact_name}}', '{{files}}'],
+    items: [
+      { tag: '{{company}}',      display: 'Company' },
+      { tag: '{{role}}',         display: 'Role' },
+      { tag: '{{contact_name}}', display: 'Contact name' },
+      { tag: '{{files}}',        display: 'Attached files' },
+    ],
   },
   {
     label: 'My profile',
-    items: ['{{my_name}}', '{{my_last_name}}', '{{my_full_name}}', '{{my_email}}', '{{my_phone}}', '{{my_address}}', '{{my_linkedin}}', '{{my_links}}'],
+    items: [
+      { tag: '{{my_name}}',      display: 'First name' },
+      { tag: '{{my_last_name}}', display: 'Last name' },
+      { tag: '{{my_full_name}}', display: 'Full name' },
+      { tag: '{{my_email}}',     display: 'Email' },
+      { tag: '{{my_phone}}',     display: 'Phone' },
+      { tag: '{{my_address}}',   display: 'Address' },
+      { tag: '{{my_linkedin}}',  display: 'LinkedIn' },
+    ],
   },
 ]
 
-const PREVIEW_VARS: Record<string, string> = {
+const BASE_PREVIEW_VARS: Record<string, string> = {
   company: 'Acme Corp', role: 'Software Engineer', contact_name: 'Jane Smith', files: 'CV.pdf',
   my_name: 'John', my_last_name: 'Doe', my_full_name: 'John Doe',
   my_email: 'john@example.com', my_phone: '+1 555 000 0000',
   my_address: '123 Main St, Stockholm, 111 22, Sweden',
   my_linkedin: 'https://linkedin.com/in/johndoe',
-  my_links: 'Portfolio: https://johndoe.dev',
 }
 
 function A4Preview({ text }: { text: string }) {
-  const filled = text.replace(/\{\{(\w+)\}\}/g, (_, k: string) => PREVIEW_VARS[k] ?? `{{${k}}}`)
+  const { state } = useStore()
+  const previewVars: Record<string, string> = {
+    ...BASE_PREVIEW_VARS,
+    ...(state.settings.links ?? []).reduce((acc, l) => {
+      if (l.label && l.url) acc[linkVar(l.label)] = l.url
+      return acc
+    }, {} as Record<string, string>),
+  }
+  const filled = text.replace(/\{\{(\w+)\}\}/g, (_, k: string) => previewVars[k] ?? `{{${k}}}`)
   return (
     <div style={{ background: '#fff', color: '#111', width: '100%', padding: '10% 12%', fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 11, lineHeight: 1.65, whiteSpace: 'pre-wrap', wordBreak: 'break-word', boxShadow: '0 2px 16px rgba(0,0,0,0.35)', minHeight: 320 }}>
       {filled || <span style={{ color: '#aaa', fontStyle: 'italic' }}>Start typing in the body to see a preview…</span>}
@@ -36,17 +60,28 @@ function A4Preview({ text }: { text: string }) {
 }
 
 function PlaceholderSidebar({ onInsert }: { onInsert: (p: string) => void }) {
+  const { state } = useStore()
+  const userLinks = (state.settings.links ?? []).filter(l => l.label && l.url)
+
+  const groups = [
+    ...BASE_GROUPS,
+    ...(userLinks.length > 0 ? [{
+      label: 'My links',
+      items: userLinks.map(l => ({ tag: `{{${linkVar(l.label)}}}`, display: l.label })),
+    }] : []),
+  ]
+
   return (
     <div style={{ width: 160, flexShrink: 0, borderLeft: '1px solid var(--color-edge)', padding: '20px 12px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
       <p className="m-0 text-[11px] text-lo/60">Click to insert at cursor</p>
-      {PLACEHOLDER_GROUPS.map(group => (
+      {groups.map(group => (
         <div key={group.label}>
           <div className="text-[11px] font-semibold text-lo/60 uppercase tracking-wide mb-1.5">{group.label}</div>
           <div className="flex flex-col gap-1">
-            {group.items.map(p => (
-              <button key={p} type="button" onClick={() => onInsert(p)}
-                className="text-left text-[11px] font-mono px-2 py-1 rounded bg-raised border border-edge text-lo hover:text-hi hover:border-primary transition-colors">
-                {p}
+            {group.items.map(({ tag, display }) => (
+              <button key={tag} type="button" onClick={() => onInsert(tag)}
+                className="text-left text-[11px] px-2 py-1 rounded bg-raised border border-edge text-lo hover:text-hi hover:border-primary transition-colors">
+                {display}
               </button>
             ))}
           </div>

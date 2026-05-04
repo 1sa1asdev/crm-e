@@ -1,7 +1,9 @@
-import { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode } from 'react'
+import Database from '@tauri-apps/plugin-sql'
 import type { AppState } from './types'
 
-const STORAGE_KEY = 'job-crm:v1'
+const DB_PATH = 'sqlite:crm-data.db'
+const OLD_STORAGE_KEY = 'job-crm:v1' // for one-time migration from localStorage
 
 export const DEFAULT_STATE: AppState = {
   applications: [],
@@ -31,7 +33,7 @@ export const DEFAULT_STATE: AppState = {
     name: '', last_name: '', email: '', phone: '',
     street: '', city: '', postal_code: '', country: '',
     linkedin: '', links: [],
-    compose: 'gmail', active_mail_provider: 'gmail',
+    active_mail_provider: 'gmail',
     openrouter_key: '', openrouter_model: '',
   },
   mail: {
@@ -40,15 +42,15 @@ export const DEFAULT_STATE: AppState = {
   },
 }
 
-function loadState(): AppState {
+// ── Parse + migrate raw JSON string into a valid AppState ─────────────────────
+
+function parseState(raw: string): AppState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return structuredClone(DEFAULT_STATE)
     const parsed = JSON.parse(raw)
     const base = structuredClone(DEFAULT_STATE)
     const result = { ...base, ...parsed }
-    // deep-merge nested objects so added fields aren't dropped
     result.settings = { ...base.settings, ...(parsed.settings ?? {}) }
+    if (!Array.isArray(result.settings.links)) result.settings.links = []
     // migrate templates missing type field
     if (Array.isArray(result.templates)) {
       result.templates = result.templates.map((t: { type?: string }) => t.type ? t : { ...t, type: 'email' })
@@ -69,6 +71,68 @@ function loadState(): AppState {
   }
 }
 
+// ── SQLite helpers ────────────────────────────────────────────────────────────
+
+let _db: Database | null = null
+
+async function getDb(): Promise<Database> {
+  if (!_db) {
+    _db = await Database.load(DB_PATH)
+    await _db.execute(
+      'CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, data TEXT NOT NULL)'
+    )
+  }
+  return _db
+}
+
+async function loadState(): Promise<AppState> {
+  try {
+    const db = await getDb()
+    const rows = await db.select<{ data: string }[]>('SELECT data FROM state WHERE id = 1')
+    if (rows.length > 0 && rows[0].data) {
+      return parseState(rows[0].data)
+    }
+
+    // First launch — try migrating from old localStorage data
+    try {
+      const oldRaw = localStorage.getItem(OLD_STORAGE_KEY)
+      if (oldRaw) {
+        const migrated = parseState(oldRaw)
+        await db.execute(
+          'INSERT OR REPLACE INTO state (id, data) VALUES (1, ?)',
+          [JSON.stringify(migrated)]
+        )
+        localStorage.removeItem(OLD_STORAGE_KEY)
+        return migrated
+      }
+    } catch { /* no old data, that's fine */ }
+
+    return structuredClone(DEFAULT_STATE)
+  } catch (e) {
+    console.error('SQLite load failed, falling back to localStorage:', e)
+    // Last-resort fallback so the app never shows blank
+    try {
+      const raw = localStorage.getItem(OLD_STORAGE_KEY)
+      if (raw) return parseState(raw)
+    } catch { /* ignore */ }
+    return structuredClone(DEFAULT_STATE)
+  }
+}
+
+async function saveState(state: AppState): Promise<void> {
+  try {
+    const db = await getDb()
+    await db.execute(
+      'INSERT OR REPLACE INTO state (id, data) VALUES (1, ?)',
+      [JSON.stringify(state)]
+    )
+  } catch (e) {
+    console.error('SQLite save failed:', e)
+  }
+}
+
+// ── Store context ─────────────────────────────────────────────────────────────
+
 type ToastKind = '' | 'success' | 'error'
 
 interface StoreCtx {
@@ -80,17 +144,27 @@ interface StoreCtx {
 const Ctx = createContext<StoreCtx>(null!)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(loadState)
+  const [state, setState] = useState<AppState>(structuredClone(DEFAULT_STATE))
+  const [loaded, setLoaded] = useState(false)
+
   const [toastMsg, setToastMsg] = useState('')
   const [toastKind, setToastKind] = useState<ToastKind>('')
   const [toastVisible, setToastVisible] = useState(false)
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
+  // Load from SQLite on mount (async)
+  useEffect(() => {
+    loadState().then(s => {
+      setState(s)
+      setLoaded(true)
+    })
+  }, [])
+
   const update = useCallback((fn: (s: AppState) => void) => {
     setState(prev => {
       const next = structuredClone(prev)
       fn(next)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+      saveState(next) // fire-and-forget — SQLite write is non-blocking
       return next
     })
   }, [])
@@ -102,6 +176,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToastVisible(false), kind === 'error' ? 5000 : 2200)
   }, [])
+
+  if (!loaded) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--color-lo, #888)', fontSize: 14 }}>
+        Loading…
+      </div>
+    )
+  }
 
   return (
     <Ctx.Provider value={{ state, update, toast }}>

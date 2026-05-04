@@ -26,6 +26,7 @@ export interface Application {
   thread_ids: string[]
   sync_provider?: MailProvider
   view_id?: string
+  follow_up_at?: string
   created_at: string
 }
 
@@ -51,11 +52,13 @@ export interface FileRecord {
 export interface EmailRecord {
   id: string
   threadId: string
+  messageId?: string   // RFC 2822 Message-ID header, used for reply threading
   date: number
   from: string
   to: string
   subject: string
-  snippet: string
+  snippet: string      // short preview / fallback
+  body?: string        // full plain-text body (populated after sync)
   direction: 'outgoing' | 'incoming' | 'unknown'
   classification: string
 }
@@ -98,7 +101,6 @@ export interface Settings {
   country: string
   linkedin: string
   links: CustomLink[]
-  compose: 'gmail' | 'mailto'
   active_mail_provider: MailProvider
   openrouter_key: string
   openrouter_model: string

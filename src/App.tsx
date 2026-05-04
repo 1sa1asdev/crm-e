@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { useStore } from './store'
+import { ensureToken } from './auth'
 import Applications from './tabs/Applications'
 import Leads from './tabs/Leads'
 import Jobs from './tabs/Jobs'
@@ -102,6 +103,12 @@ export default function App() {
 
   useEffect(() => {
     check().then(u => { if (u?.available) setPendingUpdate(u) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    for (const provider of ['gmail', 'outlook'] as const) {
+      if (state.mail[provider].refresh_token) ensureToken(provider, state, update).catch(() => {})
+    }
   }, [])
 
   useEffect(() => {
