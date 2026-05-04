@@ -306,29 +306,15 @@ No account required. No data ever leaves your machine except the emails you expl
 Because crm-e is not yet signed with a paid Microsoft certificate, Windows will show a SmartScreen warning the first time you run the installer. The app is safe — here is how to get past it:
 
 1. Double-click the downloaded `.msi` or `.exe` installer
-2. Windows shows **"Windows protected your PC"**
-3. Click **"More info"** (bottom-left of the dialog)
-4. A **"Run anyway"** button appears — click it
-5. The installer proceeds normally
+2. Windows shows **"Windows protected your PC"** — click **"More info"**
 
-```
-┌──────────────────────────────────────────┐
-│  Windows protected your PC               │
-│                                          │
-│  Microsoft Defender SmartScreen          │
-│  prevented an unrecognised app from      │
-│  starting.                               │
-│                                          │
-│  > More info          Don't run          │
-└──────────────────────────────────────────┘
-             ↓ after clicking More info
-┌──────────────────────────────────────────┐
-│  App: crm-e                              │
-│  Publisher: Unknown                      │
-│                                          │
-│  > Run anyway         Don't run          │
-└──────────────────────────────────────────┘
-```
+![Windows SmartScreen step 1](.github/images/smartscreen-1.png)
+
+3. A **"Run anyway"** button appears — click it
+
+![Windows SmartScreen step 2](.github/images/smartscreen-2.png)
+
+4. The installer proceeds normally
 
 ---
 
@@ -340,22 +326,11 @@ macOS will block the app on first open because crm-e is not notarised with an Ap
 2. Try to open crm-e — macOS will block it with a warning
 3. Open **System Settings → Privacy & Security**
 4. Scroll down to the **Security** section
-5. You will see **"crm-e was blocked from use because it is not from an identified developer"**
-6. Click **"Open Anyway"**
-7. Confirm in the dialog that appears
+5. You will see **"crm-e was blocked from use because it is not from an identified developer"** — click **"Open Anyway"**
 
-```
-┌──────────────────────────────────────────┐
-│  Privacy & Security                      │
-│                                          │
-│  Security                                │
-│                                          │
-│  "crm-e" was blocked from use because   │
-│  it is not from an identified developer. │
-│                                          │
-│                       [ Open Anyway ]  ◄─┘
-└──────────────────────────────────────────┘
-```
+![macOS Gatekeeper](.github/images/mac-gatekeeper.png)
+
+6. Confirm in the dialog that appears
 
 > These warnings appear because code-signing certificates cost money and require annual renewal. crm-e is fully open source — you can read every line of code at [github.com/1sa1asdev/crm-e](https://github.com/1sa1asdev/crm-e) before running it.
 
