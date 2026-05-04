@@ -376,19 +376,26 @@ function ComposeDialog({ open, app, onClose, onSent, onNavigateSettings }: Compo
   function buildVars(filesText: string): Record<string, string> {
     const linkVars = (state.settings.links ?? []).filter(l => l.label && l.url)
       .reduce((acc, l) => { acc[linkVar(l.label)] = l.url; return acc }, {} as Record<string, string>)
-    return {
+    const s = state.settings
+    const fullName = [s.name, s.last_name].filter(Boolean).join(' ')
+    const address  = [s.street, s.city, s.postal_code, s.country].filter(Boolean).join(', ')
+    // Only include keys whose value is non-empty — otherwise the fill logic
+    // leaves the {{placeholder}} visible so the user notices the missing field
+    // instead of silently sending an empty space.
+    const out: Record<string, string> = {
       company: app?.company ?? '', role: app?.role ?? '',
       contact_name: app?.contact_name || 'there',
-      my_name: state.settings.name ?? '',
-      my_last_name: state.settings.last_name ?? '',
-      my_full_name: [state.settings.name, state.settings.last_name].filter(Boolean).join(' '),
-      my_email: state.settings.email ?? '',
-      my_phone: state.settings.phone ?? '',
-      my_address: [state.settings.street, state.settings.city, state.settings.postal_code, state.settings.country].filter(Boolean).join(', '),
-      my_linkedin: state.settings.linkedin ?? '',
       files: filesText,
       ...linkVars,
     }
+    if (s.name)      out.my_name      = s.name
+    if (s.last_name) out.my_last_name = s.last_name
+    if (fullName)    out.my_full_name = fullName
+    if (s.email || mailState.user_email) out.my_email = s.email || mailState.user_email
+    if (s.phone)     out.my_phone     = s.phone
+    if (address)     out.my_address   = address
+    if (s.linkedin)  out.my_linkedin  = s.linkedin
+    return out
   }
 
   function selectedFileNames() {
@@ -551,6 +558,16 @@ function ComposeDialog({ open, app, onClose, onSent, onNavigateSettings }: Compo
             </button>
           </div>
         )}
+
+        {(() => {
+          const missing = Array.from(new Set([...(subject + body).matchAll(/\{\{(my_\w+)\}\}/g)].map(m => m[1])))
+          if (missing.length === 0) return null
+          return (
+            <div className="px-5 py-2 text-xs bg-warn/10 border-b border-warn/30" style={{ color: 'var(--warning, #f59e0b)' }}>
+              ⚠ Your profile is missing: <strong>{missing.join(', ')}</strong>. Fill these in <strong>Profile</strong> or remove the placeholders before sending.
+            </div>
+          )
+        })()}
 
         {/* Email header rows */}
         <div className="border-b border-edge">
@@ -741,23 +758,36 @@ function EmailsDialog({ open, app, onClose }: EmailsDialogProps) {
 
   const coverLetterTemplates = state.templates.filter(t => (t.type ?? 'email') === 'cover_letter')
 
+  // Shared placeholder builder for the reply panel. Empty profile fields are
+  // omitted so unresolved {{my_*}} placeholders stay visible in the body —
+  // surfaces the missing-profile warning rather than silently sending blanks.
+  function buildReplyVars(filesText: string): Record<string, string> {
+    const s = state.settings
+    const fullName = [s.name, s.last_name].filter(Boolean).join(' ')
+    const address  = [s.street, s.city, s.postal_code, s.country].filter(Boolean).join(', ')
+    const out: Record<string, string> = {
+      company: app?.company ?? '', role: app?.role ?? '',
+      contact_name: app?.contact_name || 'there',
+      files: filesText,
+      ...(s.links ?? []).filter(l => l.label && l.url).reduce((acc, l) => { acc[linkVar(l.label)] = l.url; return acc }, {} as Record<string, string>),
+    }
+    if (s.name)      out.my_name      = s.name
+    if (s.last_name) out.my_last_name = s.last_name
+    if (fullName)    out.my_full_name = fullName
+    if (s.email || mailState.user_email) out.my_email = s.email || mailState.user_email
+    if (s.phone)     out.my_phone     = s.phone
+    if (address)     out.my_address   = address
+    if (s.linkedin)  out.my_linkedin  = s.linkedin
+    return out
+  }
+
   function applyCoverLetterReply(tplId: string) {
     setReplyCoverLetterId(tplId)
     setReplyPdfAttachment(null)
     if (!tplId) { setReplyCoverLetterBody(''); return }
     const tpl = state.templates.find(t => t.id === tplId)
     if (!tpl) { setReplyCoverLetterBody(''); return }
-    const vars: Record<string, string> = {
-      company: app?.company ?? '', role: app?.role ?? '',
-      contact_name: app?.contact_name || 'there',
-      my_name: state.settings.name ?? '', my_last_name: state.settings.last_name ?? '',
-      my_full_name: [state.settings.name, state.settings.last_name].filter(Boolean).join(' '),
-      my_email: state.settings.email ?? '', my_phone: state.settings.phone ?? '',
-      my_address: [state.settings.street, state.settings.city, state.settings.postal_code, state.settings.country].filter(Boolean).join(', '),
-      my_linkedin: state.settings.linkedin ?? '',
-      files: '',
-      ...(state.settings.links ?? []).filter(l => l.label && l.url).reduce((acc, l) => { acc[linkVar(l.label)] = l.url; return acc }, {} as Record<string, string>),
-    }
+    const vars = buildReplyVars('')
     setReplyCoverLetterBody(tpl.body.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? `{{${k}}}`))
   }
 
@@ -1003,17 +1033,7 @@ function EmailsDialog({ open, app, onClose }: EmailsDialogProps) {
                   const tpl = state.templates.find(t => t.id === id)
                   if (tpl) {
                     const fileNames = replyFiles.map(fid => state.files.find(f => f.id === fid)?.filename).filter(Boolean).join(', ') || '(none)'
-                    const vars: Record<string, string> = {
-                      company: app?.company ?? '', role: app?.role ?? '',
-                      contact_name: app?.contact_name || 'there',
-                      my_name: state.settings.name ?? '', my_last_name: state.settings.last_name ?? '',
-                      my_full_name: [state.settings.name, state.settings.last_name].filter(Boolean).join(' '),
-                      my_email: state.settings.email ?? '', my_phone: state.settings.phone ?? '',
-                      my_address: [state.settings.street, state.settings.city, state.settings.postal_code, state.settings.country].filter(Boolean).join(', '),
-                      my_linkedin: state.settings.linkedin ?? '',
-                      files: fileNames,
-                      ...(state.settings.links ?? []).filter(l => l.label && l.url).reduce((acc, l) => { acc[linkVar(l.label)] = l.url; return acc }, {} as Record<string, string>),
-                    }
+                    const vars = buildReplyVars(fileNames)
                     setReplyBody(tpl.body.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? `{{${k}}}`))
                   }
                 }
@@ -1064,6 +1084,17 @@ function EmailsDialog({ open, app, onClose }: EmailsDialogProps) {
                 </div>
               </div>
             )}
+
+            {/* Missing-profile warning */}
+            {(() => {
+              const missing = Array.from(new Set([...(replyBody + replyCoverLetterBody).matchAll(/\{\{(my_\w+)\}\}/g)].map(m => m[1])))
+              if (missing.length === 0) return null
+              return (
+                <div className="px-4 py-2 text-xs bg-warn/10 border-b border-warn/30" style={{ color: 'var(--warning, #f59e0b)' }}>
+                  ⚠ Your profile is missing: <strong>{missing.join(', ')}</strong>. Fill these in <strong>Profile</strong> or remove the placeholders before sending.
+                </div>
+              )
+            })()}
 
             {/* Body */}
             <div className="px-4 py-3">

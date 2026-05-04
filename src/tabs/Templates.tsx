@@ -34,27 +34,44 @@ const BASE_GROUPS: { label: string; items: { tag: string; display: string }[] }[
   },
 ]
 
-const BASE_PREVIEW_VARS: Record<string, string> = {
-  company: 'Acme Corp', role: 'Software Engineer', contact_name: 'Jane Smith', files: 'CV.pdf',
-  my_name: 'John', my_last_name: 'Doe', my_full_name: 'John Doe',
-  my_email: 'john@example.com', my_phone: '+1 555 000 0000',
-  my_address: '123 Main St, Stockholm, 111 22, Sweden',
-  my_linkedin: 'https://linkedin.com/in/johndoe',
-}
-
 function A4Preview({ text }: { text: string }) {
   const { state } = useStore()
+  const s = state.settings
+  const fullName = [s.name, s.last_name].filter(Boolean).join(' ')
+  const address = [s.street, s.city, s.postal_code, s.country].filter(Boolean).join(', ')
+  const profileEmail = s.email || state.mail.gmail.user_email || state.mail.outlook.user_email
+
+  // Real profile data fills the preview. Application-context placeholders
+  // (company / role / contact_name / files) keep sample data since there is
+  // no specific application selected when previewing a template.
   const previewVars: Record<string, string> = {
-    ...BASE_PREVIEW_VARS,
-    ...(state.settings.links ?? []).reduce((acc, l) => {
+    company: 'Acme Corp', role: 'Software Engineer', contact_name: 'Jane Smith', files: 'CV.pdf',
+    my_name:      s.name      || '{{my_name}}',
+    my_last_name: s.last_name || '{{my_last_name}}',
+    my_full_name: fullName    || '{{my_full_name}}',
+    my_email:     profileEmail || '{{my_email}}',
+    my_phone:     s.phone     || '{{my_phone}}',
+    my_address:   address     || '{{my_address}}',
+    my_linkedin:  s.linkedin  || '{{my_linkedin}}',
+    ...(s.links ?? []).reduce((acc, l) => {
       if (l.label && l.url) acc[linkVar(l.label)] = l.url
       return acc
     }, {} as Record<string, string>),
   }
+
   const filled = text.replace(/\{\{(\w+)\}\}/g, (_, k: string) => previewVars[k] ?? `{{${k}}}`)
+  const missingProfile = !s.name && !s.last_name && !s.phone && !address
+
   return (
-    <div style={{ background: '#fff', color: '#111', width: '100%', padding: '10% 12%', fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 11, lineHeight: 1.65, whiteSpace: 'pre-wrap', wordBreak: 'break-word', boxShadow: '0 2px 16px rgba(0,0,0,0.35)', minHeight: 320 }}>
-      {filled || <span style={{ color: '#aaa', fontStyle: 'italic' }}>Start typing in the body to see a preview…</span>}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+      {missingProfile && (
+        <div className="text-[11px] px-2.5 py-1.5 rounded-md border border-warn/40 bg-warn/10" style={{ color: 'var(--warning, #f59e0b)' }}>
+          ⚠ Your profile is empty — fill in <strong>Profile</strong> so placeholders like <code>{'{{my_name}}'}</code> render correctly.
+        </div>
+      )}
+      <div style={{ background: '#fff', color: '#111', width: '100%', padding: '10% 12%', fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 11, lineHeight: 1.65, whiteSpace: 'pre-wrap', wordBreak: 'break-word', boxShadow: '0 2px 16px rgba(0,0,0,0.35)', minHeight: 320 }}>
+        {filled || <span style={{ color: '#aaa', fontStyle: 'italic' }}>Start typing in the body to see a preview…</span>}
+      </div>
     </div>
   )
 }
