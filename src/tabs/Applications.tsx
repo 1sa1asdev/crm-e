@@ -351,9 +351,10 @@ interface ComposeDialogProps {
   app: Application | null
   onClose: () => void
   onSent: (appId: string, provider: MailProvider, threadId?: string) => void
+  onNavigateSettings: () => void
 }
 
-function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
+function ComposeDialog({ open, app, onClose, onSent, onNavigateSettings }: ComposeDialogProps) {
   const { state, update, toast } = useStore()
   const ref = useDialog(open, onClose)
   const [subject, setSubject] = useState('')
@@ -542,7 +543,12 @@ function ComposeDialog({ open, app, onClose, onSent }: ComposeDialogProps) {
 
         {!connected && (
           <div className="px-5 py-2 text-xs bg-warn/10 border-b border-warn/30" style={{ color: 'var(--warning, #f59e0b)' }}>
-            No email account connected — go to Settings to connect Gmail or Outlook first.
+            No email account connected —{' '}
+            <button type="button" onClick={onNavigateSettings}
+              className="underline bg-transparent border-none p-0 cursor-pointer text-xs"
+              style={{ color: 'inherit' }}>
+              open Settings to connect Gmail or Outlook
+            </button>
           </div>
         )}
 
@@ -1088,7 +1094,7 @@ function EmailsDialog({ open, app, onClose }: EmailsDialogProps) {
 
 // ── Applications (main) ───────────────────────────────────────────────────────
 
-export default function Applications() {
+export default function Applications({ onNavigateSettings }: { onNavigateSettings?: () => void }) {
   const { state, update, toast } = useStore()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -1432,7 +1438,7 @@ export default function Applications() {
 
       <AppDialog open={appOpen} initial={editingApp} views={state.filter_views} onClose={closeApp} onSave={saveApp} />
       <ViewDialog open={viewOpen} initial={editingView} onClose={useCallback(() => setViewOpen(false), [])} onSave={saveView} onDelete={deleteView} />
-      <ComposeDialog key={composeApp?.id ?? 'none'} open={composeOpen} app={composeApp} onClose={useCallback(() => setComposeOpen(false), [])} onSent={onSent} />
+      <ComposeDialog key={composeApp?.id ?? 'none'} open={composeOpen} app={composeApp} onClose={useCallback(() => setComposeOpen(false), [])} onSent={onSent} onNavigateSettings={() => { setComposeOpen(false); onNavigateSettings?.() }} />
       <EmailsDialog open={emailsOpen} app={emailsApp} onClose={useCallback(() => setEmailsOpen(false), [])} />
     </div>
   )

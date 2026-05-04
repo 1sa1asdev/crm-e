@@ -49,8 +49,14 @@ export async function ensureToken(
   // Token expired or close to expiry — refresh
   const result = await fetchRefreshedToken(provider, m.refresh_token)
   if (!result) {
-    // Refresh failed — clear the stale token so UI reflects disconnected state
-    update(s => { s.mail[provider].token = ''; s.mail[provider].expires_at = 0 })
+    // Refresh failed (token revoked / expired) — clear everything so the UI
+    // shows "Connect account" and forces the user to log in again
+    update(s => {
+      s.mail[provider].token         = ''
+      s.mail[provider].refresh_token = ''
+      s.mail[provider].expires_at    = 0
+      s.mail[provider].user_email    = ''
+    })
     return null
   }
 

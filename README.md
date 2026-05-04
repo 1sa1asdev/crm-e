@@ -1,4 +1,4 @@
-# Jobbr — Job Application CRM
+# crm-e
 
 > A desktop app for tracking job applications, managing email outreach, and never losing track of who you've contacted.
 
@@ -8,11 +8,11 @@ Built with Tauri + React. Your data lives entirely on your machine — no cloud,
 
 ## What it does
 
-Jobbr is a personal CRM for your job search. You track every application in one place, compose and send emails directly from the app, sync replies, and let AI summarise what stage each conversation is at.
+crm-e is a personal CRM for your job search. You track every application in one place, compose and send emails directly from the app, sync replies, and let AI summarise what stage each conversation is at.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         JOBBR DESKTOP                           │
+│                         CRM-E DESKTOP                           │
 │                                                                 │
 │  Applications  │  Templates  │  Files  │  Leads  │  Profile    │
 │────────────────┼─────────────┼─────────┼─────────┼─────────────│
@@ -47,7 +47,7 @@ Jobbr is a personal CRM for your job search. You track every application in one 
 
 ## Email providers
 
-This is the most important thing to understand before setting up Jobbr.
+This is the most important thing to understand before setting up crm-e.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -68,7 +68,7 @@ This is the most important thing to understand before setting up Jobbr.
 
 ### Why the Gmail limit?
 
-Jobbr sends email on your behalf using Google's official OAuth 2.0 flow — the same mechanism used by every reputable email client. Google requires apps that access Gmail to go through a verification process before they can serve more than 100 users. That review is in progress.
+crm-e sends email on your behalf using Google's official OAuth 2.0 flow — the same mechanism used by every reputable email client. Google requires apps that access Gmail to go through a verification process before they can serve more than 100 users. That review is in progress.
 
 **What this means for you:**
 
@@ -93,7 +93,7 @@ If you want to start right now with no friction, **connect Outlook**. It works f
 ```
 ┌─────────────┐     OAuth PKCE      ┌──────────────────────┐
 │             │ ──────────────────► │  Microsoft login page │
-│   Jobbr     │ ◄────────────────── │  (your browser)       │
+│   crm-e     │ ◄────────────────── │  (your browser)       │
 │             │    access token     └──────────────────────┘
 │  (desktop)  │
 │             │   Microsoft Graph   ┌──────────────────────┐
@@ -106,7 +106,7 @@ If you want to start right now with no friction, **connect Outlook**. It works f
 
 ## Application lifecycle
 
-Every application moves through a set of statuses. Jobbr can suggest status changes automatically based on email content.
+Every application moves through a set of statuses. crm-e can suggest status changes automatically based on email content.
 
 ```
                        ┌─────────┐
@@ -139,7 +139,7 @@ Every application moves through a set of statuses. Jobbr can suggest status chan
 You click "Sync from Outlook / Gmail"
            │
            ▼
-Jobbr fetches every message in the tracked thread(s)
+crm-e fetches every message in the tracked thread(s)
            │
            ├── Stores full email body (not just a snippet)
            ├── Detects direction (sent by you vs received)
@@ -221,12 +221,12 @@ Click **Attach as PDF** and the cover letter is generated with jsPDF and attache
 
 ## AI email analysis
 
-Jobbr integrates with [OpenRouter](https://openrouter.ai) so you can use any LLM to classify your email threads.
+crm-e integrates with [OpenRouter](https://openrouter.ai) so you can use any LLM to classify your email threads.
 
 **Setup** (Settings → AI)
 1. Create a free account at openrouter.ai
 2. Generate an API key
-3. Paste it into Jobbr — pick any model (e.g. `mistralai/mistral-7b-instruct` is fast and cheap)
+3. Paste it into crm-e — pick any model (e.g. `mistralai/mistral-7b-instruct` is fast and cheap)
 
 **What it does**
 ```
@@ -250,10 +250,10 @@ Your email thread
 └─────────────────────────────────────────┘
        │
        ▼
-Jobbr shows a suggestion banner — you click Apply or Dismiss
+crm-e shows a suggestion banner — you click Apply or Dismiss
 ```
 
-No data is sent to Anthropic or any Jobbr server. Your emails go directly from your machine to OpenRouter and back.
+No data is sent to Anthropic or any crm-e server. Your emails go directly from your machine to OpenRouter and back.
 
 ---
 
@@ -293,8 +293,8 @@ No account required. No data ever leaves your machine except the emails you expl
 ## Getting started
 
 1. Download the installer from the [Releases](https://github.com/1sa1asdev/crm-e/releases) page
-2. Install and open Jobbr
-3. Go to **Settings → Data** and connect Outlook (recommended) or Gmail
+2. Install and open crm-e
+3. Go to **Settings** and connect Outlook (recommended) or Gmail
 4. Go to **Profile** and fill in your name, phone, address and any custom links
 5. Go to **Templates** and create your first email template
 6. Go to **Applications** and click **+ New**

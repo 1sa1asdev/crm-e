@@ -98,17 +98,27 @@ export default function App() {
   const { state, update, toast } = useStore()
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null)
   const [installing, setInstalling] = useState(false)
+  const [authChecking, setAuthChecking] = useState(true)
   const ap = state.settings.active_mail_provider
-  const activeEmail = state.mail[ap].user_email || state.mail[ap === 'gmail' ? 'outlook' : 'gmail'].user_email
+  const now = Date.now()
+  // Connected = has a valid (non-expired) access token. The startup useEffect
+  // attempts a silent refresh — if it fails, auth.ts wipes user_email too,
+  // so user_email is only present when a real session exists.
+  const gmailConnected   = !!(state.mail.gmail.token   && state.mail.gmail.expires_at   > now)
+  const outlookConnected = !!(state.mail.outlook.token && state.mail.outlook.expires_at > now)
+  const anyConnected = gmailConnected || outlookConnected
+  const activeEmail = anyConnected
+    ? (state.mail[ap].user_email || state.mail[ap === 'gmail' ? 'outlook' : 'gmail'].user_email)
+    : null
 
   useEffect(() => {
     check().then(u => { if (u?.available) setPendingUpdate(u) }).catch(() => {})
   }, [])
 
   useEffect(() => {
-    for (const provider of ['gmail', 'outlook'] as const) {
-      if (state.mail[provider].refresh_token) ensureToken(provider, state, update).catch(() => {})
-    }
+    const providers = (['gmail', 'outlook'] as const).filter(p => state.mail[p].refresh_token)
+    if (providers.length === 0) { setAuthChecking(false); return }
+    Promise.all(providers.map(p => ensureToken(p, state, update).catch(() => {}))).finally(() => setAuthChecking(false))
   }, [])
 
   useEffect(() => {
@@ -195,12 +205,18 @@ export default function App() {
         </nav>
         <div className="ml-auto flex items-center gap-2">
           <ProviderStack />
-          {activeEmail && <span className="text-xs text-lo/70">{activeEmail}</span>}
+          {!authChecking && (anyConnected
+            ? activeEmail && <span className="text-xs text-lo/70">{activeEmail}</span>
+            : <button
+                className="text-xs px-3 py-1 rounded-lg border border-edge bg-transparent text-lo hover:text-hi hover:border-primary transition-colors cursor-pointer"
+                onClick={() => setActive('settings')}
+              >Connect account →</button>
+          )}
           <ProfileDropdown onNavigate={setActive} />
         </div>
       </header>
       <main className="flex-1 overflow-y-auto">
-        {active === 'applications' && <Applications />}
+        {active === 'applications' && <Applications onNavigateSettings={() => setActive('settings')} />}
         {active === 'leads' && <Leads />}
         <div style={{ display: active === 'jobs' ? 'block' : 'none' }}><Jobs /></div>
         {active === 'templates' && <Templates />}
