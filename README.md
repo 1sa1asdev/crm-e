@@ -10,20 +10,7 @@ Built with Tauri + React. Your data lives entirely on your machine — no cloud,
 
 crm-e is a personal CRM for your job search. You track every application in one place, compose and send emails directly from the app, sync replies, and let AI summarise what stage each conversation is at.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         CRM-E DESKTOP                           │
-│                                                                 │
-│  Applications  │  Templates  │  Files  │  Leads  │  Profile    │
-│────────────────┼─────────────┼─────────┼─────────┼─────────────│
-│                                                                 │
-│  Spotify ──────── Frontend Dev ── Interview ── 📧 Sync         │
-│  Klarna ───────── iOS Engineer ── Applied ──── 📧 Sync         │
-│  Bolt ─────────── Backend Dev ─── Draft ─────── ✏ Compose      │
-│  King ──────────── Game Dev ────── Rejected ─── 📧 Sync        │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Applications view](.github/images/screenshots/Preview1.png)
 
 ---
 
@@ -41,7 +28,24 @@ crm-e is a personal CRM for your job search. You track every application in one 
 | **Follow-up reminders** | Set a date — get a banner reminder when it's due |
 | **Views / Intentions** | Group applications by keyword, status, or label |
 | **Leads** | Separate contact list for recruiters and networking |
+| **Find jobs** | Built-in search of Arbetsförmedlingen listings, import as applications in one click |
 | **Local storage** | Everything saved to SQLite on your own machine |
+
+---
+
+## Leads
+
+A separate contact list for recruiters, hiring managers and people worth following up with. Tag them, store their LinkedIn, track when you last reached out.
+
+![Leads tab](.github/images/screenshots/preview3.png)
+
+---
+
+## Find jobs
+
+Search Swedish job listings directly inside the app via the [Arbetsförmedlingen JobTech API](https://jobtechdev.se/) — no separate browser tab needed. Click `+` on any listing to import it as a draft application with the role, company and contact email pre-filled.
+
+![Find jobs tab](.github/images/screenshots/Preview2.png)
 
 ---
 
@@ -90,6 +94,8 @@ Outlook works without any restrictions in the meantime
 
 If you want to start right now with no friction, **connect Outlook**. It works for anyone, there is no review process, and the feature set is identical.
 
+![Settings — email providers and AI](.github/images/screenshots/preview6.png)
+
 ```
 ┌─────────────┐     OAuth PKCE      ┌──────────────────────┐
 │             │ ──────────────────► │  Microsoft login page │
@@ -107,6 +113,8 @@ If you want to start right now with no friction, **connect Outlook**. It works f
 ## Application lifecycle
 
 Every application moves through a set of statuses. crm-e can suggest status changes automatically based on email content.
+
+![New application dialog](.github/images/screenshots/preview8.png)
 
 ```
                        ┌─────────┐
@@ -163,6 +171,8 @@ crm-e fetches every message in the tracked thread(s)
 ## Templates and placeholders
 
 Templates live under the **Templates** tab. You can write email templates and cover letters once and reuse them across every application.
+
+![Templates tab](.github/images/screenshots/preview4.png)
 
 ### Available placeholders
 
@@ -263,6 +273,8 @@ Upload your CV, portfolio, and other documents once under the **Files** tab. The
 
 Supported types: PDF, Word (.doc, .docx), images (JPEG, PNG, GIF, WebP), plain text.
 
+![Files tab](.github/images/screenshots/preview5.png)
+
 ---
 
 ## Follow-up reminders
@@ -298,6 +310,10 @@ No account required. No data ever leaves your machine except the emails you expl
 4. Go to **Profile** and fill in your name, phone, address and any custom links
 5. Go to **Templates** and create your first email template
 6. Go to **Applications** and click **+ New**
+
+Once connected, your account appears in the top-right corner — click your avatar to jump to **Edit profile** or **Settings** anytime:
+
+![Profile dropdown](.github/images/screenshots/preview7.png)
 
 ---
 
