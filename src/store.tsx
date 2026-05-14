@@ -10,16 +10,16 @@ export const DEFAULT_STATE: AppState = {
   templates: [
     {
       id: 'tpl-seed-1',
-      name: 'Cold application',
-      subject: 'Application for {{role}} at {{company}}',
-      body: `Hi {{contact_name}},\n\nI'm writing to apply for the {{role}} role at {{company}}. I've attached my CV and cover letter ({{files}}) for your consideration.\n\nI'd love the chance to talk about how I could contribute to your team.\n\nBest,\n{{my_name}}`,
+      name: 'Spontanansökan',
+      subject: 'Ansökan om {{role}} hos {{company}}',
+      body: `Hej {{contact_name}},\n\nJag skriver för att ansöka om tjänsten som {{role}} hos {{company}}. Jag bifogar mitt CV och personliga brev ({{files}}) för er bedömning.\n\nJag skulle gärna vilja prata om hur jag kan bidra till ert team.\n\nMed vänliga hälsningar,\n{{my_name}}`,
       type: 'email',
     },
     {
       id: 'tpl-seed-2',
-      name: 'Follow-up',
-      subject: 'Following up on {{role}} application',
-      body: `Hi {{contact_name}},\n\nI wanted to follow up on my application for the {{role}} position at {{company}} submitted earlier.\n\nHappy to share any additional info that would be useful. Looking forward to hearing from you.\n\nBest,\n{{my_name}}`,
+      name: 'Uppföljning',
+      subject: 'Uppföljning av ansökan om {{role}}',
+      body: `Hej {{contact_name}},\n\nJag ville följa upp min ansökan om tjänsten som {{role}} hos {{company}} som jag skickade in tidigare.\n\nJag delar gärna med mig av ytterligare information om det skulle vara till hjälp. Ser fram emot att höra från er.\n\nMed vänliga hälsningar,\n{{my_name}}`,
       type: 'email',
     },
   ],
@@ -35,6 +35,7 @@ export const DEFAULT_STATE: AppState = {
     linkedin: '', links: [],
     active_mail_provider: 'gmail',
     openrouter_key: '', openrouter_model: '',
+    compose_assist: 'context',
   },
   mail: {
     gmail:   { token: '', refresh_token: '', expires_at: 0, user_email: '' },
@@ -180,7 +181,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   if (!loaded) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--color-lo, #888)', fontSize: 14 }}>
-        Loading…
+        Laddar…
       </div>
     )
   }

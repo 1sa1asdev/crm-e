@@ -1,5 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useStore } from '../store'
+import { useLang } from '../hooks/useLang'
 import { uid } from '../utils'
 import type { Application } from '../types'
 import type { FilterView } from '../types'
@@ -274,6 +275,17 @@ interface JobHit {
   remote?: boolean
 }
 
+function filterByWorkHours(hits: JobHit[], workHours: string): JobHit[] {
+  if (!workHours) return hits
+  return hits.filter(h => {
+    const label = (h.working_hours_type?.label ?? '').toLowerCase()
+    if (!label) return true // no label set — keep rather than over-filter
+    if (workHours === 'deltid') return !label.startsWith('heltid') || label.includes('deltid')
+    if (workHours === 'heltid') return !label.startsWith('deltid') || label.includes('heltid')
+    return true
+  })
+}
+
 async function fetchPage(queries: string[], baseParams: URLSearchParams, perTag: number, offset: number, seen: Set<string>): Promise<JobHit[]> {
   const responses = await Promise.all(queries.map(tag => {
     const p = new URLSearchParams(baseParams)
@@ -304,14 +316,18 @@ function extractEmail(hit: JobHit): string {
 
 export default function Jobs() {
   const { state, update, toast } = useStore()
+  const { t } = useLang()
   const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState('')
   const tagInputRef = useRef<HTMLInputElement>(null)
   const [regionCode, setRegionCode] = useState('')
-  const [municipalityCode, setMunicipalityCode] = useState('')
+  const [municipalityCodes, setMunicipalityCodes] = useState<string[]>([])
+  const [muniOpen, setMuniOpen] = useState(false)
+  const muniRef = useRef<HTMLDivElement>(null)
   const [workHours, setWorkHours] = useState('')
   const [remote, setRemote] = useState(false)
   const [limit, setLimit] = useState('20')
+  const [channelFilter, setChannelFilter] = useState<'all' | 'email' | 'external'>('all')
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [meta, setMeta] = useState('')
@@ -349,20 +365,38 @@ export default function Jobs() {
 
   function handleRegionChange(code: string) {
     setRegionCode(code)
-    setMunicipalityCode('')
+    setMunicipalityCodes([])
   }
+
+  function toggleMunicipality(code: string) {
+    setMunicipalityCodes(prev => prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code])
+  }
+
+  // Close municipality dropdown on outside click
+  useEffect(() => {
+    if (!muniOpen) return
+    function onClick(e: MouseEvent) {
+      if (muniRef.current && !muniRef.current.contains(e.target as Node)) setMuniOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [muniOpen])
 
   async function search(e: React.FormEvent) {
     e.preventDefault()
     const allTags = [...tags, ...(tagInput.trim() ? [tagInput.trim()] : [])]
     if (!allTags.length && !regionCode && !remote) { toast('Ange sökord eller välj en region', 'error'); return }
     setLoading(true)
-    setMeta('Söker…')
+    setMeta(t('jobs.searching'))
     setHits([])
 
     const baseParams = new URLSearchParams()
-    if (municipalityCode) baseParams.set('municipality', municipalityCode)
-    else if (regionCode) baseParams.set('region', regionCode)
+    if (municipalityCodes.length > 0) {
+      // API accepts repeated `municipality` keys for multi-select
+      for (const code of municipalityCodes) baseParams.append('municipality', code)
+    } else if (regionCode) {
+      baseParams.set('region', regionCode)
+    }
     if (remote) baseParams.set('remote', 'true')
     if (workHours === 'heltid') baseParams.set('scope-of-work.min', '100')
     if (workHours === 'deltid') baseParams.set('scope-of-work.max', '99')
@@ -372,10 +406,10 @@ export default function Jobs() {
     lastSearchRef.current = { queries, baseParams, perTag, offset: 0 }
 
     try {
-      const merged = await fetchPage(queries, baseParams, perTag, 0, new Set())
+      const merged = filterByWorkHours(await fetchPage(queries, baseParams, perTag, 0, new Set()), workHours)
       setHits(merged)
       setHasMore(merged.length >= perTag * queries.length)
-      setMeta(`Visar ${merged.length} träffar`)
+      setMeta(t('jobs.results', { n: merged.length }))
     } catch (err) {
       setMeta('')
       toast(`Sökning misslyckades: ${(err as Error).message}`, 'error')
@@ -392,10 +426,10 @@ export default function Jobs() {
     setLoadingMore(true)
     try {
       const existingIds = new Set(hits.map(h => h.id))
-      const more = await fetchPage(queries, baseParams, perTag, offset, existingIds)
+      const more = filterByWorkHours(await fetchPage(queries, baseParams, perTag, offset, existingIds), workHours)
       setHits(prev => [...prev, ...more])
       setHasMore(more.length >= perTag * queries.length)
-      setMeta(`Visar ${hits.length + more.length} träffar`)
+      setMeta(t('jobs.results', { n: hits.length + more.length }))
     } catch (err) {
       toast(`Kunde inte ladda fler: ${(err as Error).message}`, 'error')
     } finally {
@@ -406,11 +440,11 @@ export default function Jobs() {
   function createIntention() {
     const name = newIntentionName.trim()
     if (!name) return
-    const view: FilterView = { id: uid('view'), name, role_keywords: '', company_keywords: '', statuses: [] }
+    const view: FilterView = { id: uid('view'), name }
     update(s => { s.filter_views.push(view) })
     setTargetViewId(view.id)
     setNewIntentionName('')
-    toast(`Intention "${name}" created`, 'success')
+    toast(`Avsikt "${name}" skapad`, 'success')
   }
 
   function unimportJob(hitId: string) {
@@ -432,10 +466,10 @@ export default function Jobs() {
       contact_name: '',
       contact_email: email,
       link: url || hit.webpage_url || '',
+      deadline: hit.application_deadline ? hit.application_deadline.slice(0, 10) : undefined,
       notes: [
         `Importerad från Arbetsförmedlingen ${new Date().toISOString().slice(0, 10)}`,
         hit.workplace_address?.municipality ? `Ort: ${hit.workplace_address.municipality}` : '',
-        hit.application_deadline ? `Sista ansökningsdag: ${hit.application_deadline.slice(0, 10)}` : '',
         '',
         (hit.description?.text || '').slice(0, 1200),
       ].filter(Boolean).join('\n'),
@@ -482,16 +516,61 @@ export default function Jobs() {
             <option key={code} value={code}>{region}</option>
           ))}
         </select>
-        <select value={municipalityCode} onChange={e => setMunicipalityCode(e.target.value)} disabled={!regionCode}>
-          <option value="">{regionCode ? 'Hela länet' : '—'}</option>
-          {municipalities.map(m => (
-            <option key={m.code + m.label} value={m.code}>{m.label}</option>
-          ))}
-        </select>
+        <div ref={muniRef} className="relative">
+          <button
+            type="button"
+            disabled={!regionCode}
+            onClick={() => setMuniOpen(o => !o)}
+            className="w-full text-left bg-canvas border border-edge rounded-lg px-3 py-[7px] text-[13px] text-hi disabled:opacity-50 hover:border-primary/60 transition-colors"
+            style={{ minHeight: 34 }}
+          >
+            {!regionCode
+              ? <span className="text-lo/60">—</span>
+              : municipalityCodes.length === 0
+                ? <span className="text-lo">Hela länet</span>
+                : municipalityCodes.length === 1
+                  ? municipalities.find(m => m.code === municipalityCodes[0])?.label ?? '1 kommun'
+                  : `${municipalityCodes.length} kommuner valda`}
+            <span className="float-right text-lo/60 text-xs ml-2">▾</span>
+          </button>
+          {muniOpen && regionCode && (
+            <div className="absolute left-0 top-full mt-1 w-full min-w-[220px] bg-surface border border-edge rounded-lg shadow-lg z-20 overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-edge bg-raised/30">
+                <span className="text-[11px] text-lo">{municipalityCodes.length} av {municipalities.length} valda</span>
+                <button type="button" className="ghost text-[11px] px-2 py-0.5" onClick={() => setMunicipalityCodes([])}>{t('jobs.clear')}</button>
+              </div>
+              <div className="max-h-[260px] overflow-y-auto p-1 flex flex-col gap-0.5">
+                {municipalities.map(m => {
+                  const selected = municipalityCodes.includes(m.code)
+                  return (
+                    <button
+                      key={m.code + m.label}
+                      type="button"
+                      onClick={() => toggleMunicipality(m.code)}
+                      className={`text-left px-2.5 py-1.5 rounded text-[12px] border-none cursor-pointer transition-colors ${
+                        selected
+                          ? 'bg-primary/20 text-primary font-medium'
+                          : 'bg-transparent text-hi hover:bg-raised'
+                      }`}
+                    >
+                      {selected && <span className="mr-1.5">✓</span>}
+                      {m.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
         <select value={workHours} onChange={e => setWorkHours(e.target.value)}>
           <option value="">Alla arbetstider</option>
           <option value="heltid">Heltid</option>
           <option value="deltid">Deltid</option>
+        </select>
+        <select value={channelFilter} onChange={e => setChannelFilter(e.target.value as 'all' | 'email' | 'external')} title="How to apply">
+          <option value="all">{t('jobs.allChannels')}</option>
+          <option value="email">{t('jobs.emailOnly')}</option>
+          <option value="external">{t('jobs.externalOnly')}</option>
         </select>
         <label className="flex items-center gap-1.5 text-[13px] whitespace-nowrap cursor-pointer">
           <input type="checkbox" checked={remote} onChange={e => setRemote(e.target.checked)} style={{ width: 'auto' }} />
@@ -508,11 +587,11 @@ export default function Jobs() {
             setTargetViewId(e.target.value)
             if (e.target.value === '__new__') setTimeout(() => newIntentionRef.current?.focus(), 0)
           }}
-          title="Intention to assign imported jobs"
+          title="Tilldela avsikt för importerade jobb"
         >
-          <option value="">No intention</option>
+          <option value="">{t('jobs.noIntent')}</option>
           {state.filter_views.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-          <option value="__new__">+ New intention…</option>
+          <option value="__new__">{t('jobs.newIntent')}</option>
         </select>
         {targetViewId === '__new__' && (
           <input
@@ -520,18 +599,39 @@ export default function Jobs() {
             value={newIntentionName}
             onChange={e => setNewIntentionName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); createIntention() } if (e.key === 'Escape') { setTargetViewId(''); setNewIntentionName('') } }}
-            placeholder="Intention name…"
+            placeholder="Avsiktens namn…"
             style={{ width: 140 }}
           />
         )}
         {targetViewId === '__new__' && newIntentionName.trim() && (
-          <button type="button" onClick={createIntention}>Add</button>
+          <button type="button" onClick={createIntention}>{t('jobs.add')}</button>
         )}
-        <button type="submit" className="primary" disabled={loading}>{loading ? 'Söker…' : 'Sök'}</button>
+        <button type="submit" className="primary" disabled={loading}>{loading ? t('jobs.searching') : t('jobs.search')}</button>
       </form>
-      {meta && <div className="text-lo text-xs mb-2.5">{meta}</div>}
+      {meta && (
+        <div className="text-lo text-xs mb-2.5 flex items-center gap-2 flex-wrap">
+          <span>{meta}</span>
+          {channelFilter !== 'all' && hits.length > 0 && (() => {
+            const visible = hits.filter(h => {
+              const hasEmail    = !!extractEmail(h)
+              const hasExternal = !!h.application_details?.url
+              if (channelFilter === 'email')    return hasEmail
+              if (channelFilter === 'external') return hasExternal
+              return true
+            }).length
+            return <span className="text-lo/60">{t('jobs.afterFilter', { n: visible })}</span>
+          })()}
+        </div>
+      )}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3" style={{ marginTop: 12 }}>
-        {hits.map(hit => {
+        {hits.filter(hit => {
+          if (channelFilter === 'all') return true
+          const hasEmail    = !!extractEmail(hit)
+          const hasExternal = !!hit.application_details?.url
+          if (channelFilter === 'email')    return hasEmail
+          if (channelFilter === 'external') return hasExternal
+          return true
+        }).map(hit => {
           const email = extractEmail(hit)
           const url = hit.application_details?.url || ''
           const imported = state.imported_job_ids.includes(hit.id)
@@ -573,7 +673,7 @@ export default function Jobs() {
       {hasMore && (
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
           <button onClick={loadMore} disabled={loadingMore}>
-            {loadingMore ? 'Laddar…' : 'Ladda fler'}
+            {loadingMore ? t('jobs.loading') : t('jobs.loadMore')}
           </button>
         </div>
       )}

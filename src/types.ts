@@ -1,11 +1,11 @@
 export const STATUSES = [
-  { value: 'draft',     label: 'Draft' },
-  { value: 'applied',   label: 'Applied' },
-  { value: 'replied',   label: 'Replied' },
-  { value: 'interview', label: 'Interview' },
-  { value: 'offer',     label: 'Offer' },
-  { value: 'rejected',  label: 'Rejected' },
-  { value: 'ghosted',   label: 'Ghosted' },
+  { value: 'draft',     label: 'Utkast' },
+  { value: 'applied',   label: 'Ansökt' },
+  { value: 'replied',   label: 'Besvarad' },
+  { value: 'interview', label: 'Intervju' },
+  { value: 'offer',     label: 'Erbjudande' },
+  { value: 'rejected',  label: 'Avslag' },
+  { value: 'ghosted',   label: 'Tystnad' },
 ] as const
 
 export type StatusValue = typeof STATUSES[number]['value']
@@ -27,6 +27,7 @@ export interface Application {
   sync_provider?: MailProvider
   view_id?: string
   follow_up_at?: string
+  deadline?: string  // application_deadline from Arbetsförmedlingen, or user-set
   created_at: string
 }
 
@@ -47,6 +48,8 @@ export interface FileRecord {
   size: number
   type: string
   uploaded_at: string
+  is_cv?: boolean   // designated CV — AI reads cv_text when drafting emails
+  cv_text?: string  // extracted plain text from the CV file
 }
 
 export interface EmailRecord {
@@ -80,9 +83,7 @@ export interface Lead {
 export interface FilterView {
   id: string
   name: string
-  role_keywords: string
-  company_keywords: string
-  statuses: string[]
+  intention?: string  // open-ended: "what is your intention?" — fed directly to the AI
 }
 
 export interface CustomLink {
@@ -104,6 +105,8 @@ export interface Settings {
   active_mail_provider: MailProvider
   openrouter_key: string
   openrouter_model: string
+  lang?: 'en' | 'sv'
+  compose_assist?: 'ai' | 'context' | 'both' | 'none'
 }
 
 export interface MailAuthState {

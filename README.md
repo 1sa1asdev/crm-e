@@ -22,14 +22,39 @@ crm-e is a personal CRM for your job search. You track every application in one 
 | **Email compose** | Send templated emails directly via Gmail or Outlook |
 | **Email sync** | Pull full reply threads back into the app |
 | **AI analysis** | Classifies emails automatically — rejection, interview, offer |
+| **AI draft** | Generate a full email draft with one click using OpenRouter |
+| **Compose assist** | Context panel, AI Draft, both, or plain — your choice |
 | **Templates** | Reusable email bodies and cover letters with live placeholders |
 | **Cover letter PDF** | Generate and attach a PDF cover letter from a template |
 | **File attachments** | Attach your CV, portfolio docs to outgoing emails |
 | **Follow-up reminders** | Set a date — get a banner reminder when it's due |
+| **Deadline alerts** | Pill in the table + bell notification when a deadline is 7 days or fewer away |
+| **Notification bell** | Header badge showing due follow-ups and stale applications |
 | **Views / Intentions** | Group applications by keyword, status, or label |
 | **Leads** | Separate contact list for recruiters and networking |
+| **Lead → Application** | Convert any contact into a draft application in one click |
 | **Find jobs** | Built-in search of Arbetsförmedlingen listings, import as applications in one click |
+| **Language toggle** | Switch the entire UI between English and Swedish |
 | **Local storage** | Everything saved to SQLite on your own machine |
+
+---
+
+## Language toggle
+
+The entire UI is available in English and Swedish. Click the **EN / SV** button in the top-right header to switch. The language preference is saved alongside your other settings and persists across restarts.
+
+---
+
+## Notification bell
+
+A bell icon sits in the header next to your profile avatar. It shows a numbered badge whenever there is something worth acting on:
+
+| Notification | Condition |
+|---|---|
+| 🔔 Follow-up due | An application has a follow-up date on or before today |
+| ⏳ No response | An applied or replied application has had no contact in 30+ days |
+
+Click the bell to open the dropdown. Each item links directly to the Applications tab. Individual notifications can be dismissed with ✕, or you can clear the whole list at once. Dismissed notifications reset when you restart the app — they reappear if the condition still holds.
 
 ---
 
@@ -41,9 +66,29 @@ A separate contact list for recruiters, hiring managers and people worth followi
 
 ---
 
+## Converting a lead to an application
+
+Every row in the Leads table has a **→ Application** button. Clicking it creates a new draft application pre-filled with the contact's details:
+
+| Lead field | Application field |
+|---|---|
+| Company | Company |
+| Title | Role |
+| Name | Contact name |
+| Email | Contact email |
+| LinkedIn URL | Job link |
+| Notes | Notes |
+| Last contact | Last contact |
+
+The new application is created with status **Draft** and you are taken straight to the Applications tab so you can open it and start composing.
+
+---
+
 ## Find jobs
 
 Search Swedish job listings directly inside the app via the [Arbetsförmedlingen JobTech API](https://jobtechdev.se/) — no separate browser tab needed. Click `+` on any listing to import it as a draft application with the role, company and contact email pre-filled.
+
+Filter by up to 4 role keywords, region, municipality, full-time / part-time, and remote. Pick how many results to show per page (20 / 50 / 100), and use the **Ladda fler** (Load more) button at the bottom to keep paging deeper through the results until you find what you want.
 
 ![Find jobs tab](.github/images/screenshots/Preview2.png)
 
@@ -110,6 +155,34 @@ If you want to start right now with no friction, **connect Outlook**. It works f
 
 ---
 
+## Views (Intentions)
+
+Group your applications by purpose, not just by status. A **view** (also called an "intention") is a saved filter — for example *"Summer internships"* or *"Stockholm-based"*. Views can match automatically by:
+
+- **Role keywords** — comma-separated, matches against the role title
+- **Company keywords** — comma-separated, matches against the company name
+- **Statuses** — only show apps in specific stages
+
+Views appear as chips at the top of the Applications tab with live counts. Clicking a chip filters the table. You can also pin an application to a view manually using the per-row dropdown — useful for apps that don't match by keywords but still belong to that intention.
+
+Imported jobs from the **Find jobs** tab inherit your currently selected intention, so you can search → import a batch → and they all land in the right view.
+
+---
+
+## The Applications table
+
+The Applications view is more than a list — it has filtering, sorting and bulk actions:
+
+- **Search** — type a company or role keyword in the top-right search box
+- **Status filter** — dropdown next to search, narrow to a single status
+- **Sort** — click any column header (Company / Role / Status / Applied / Last contact) to sort, click again to reverse
+- **Status chips** — counters at the top show how many apps are in each status, scoped to the current view
+- **Multi-select** — click **☑ Select** to enter selection mode, tick rows, then **Delete** to bulk-remove
+- **↻ Sync all** — refreshes every tracked email thread across all applications in one click; the icon spins while syncing
+- **Per-row actions** — Compose / Emails / Edit / Delete buttons on each row, plus a small G or O badge showing which provider that app is synced through
+
+---
+
 ## Application lifecycle
 
 Every application moves through a set of statuses. crm-e can suggest status changes automatically based on email content.
@@ -165,6 +238,20 @@ crm-e fetches every message in the tracked thread(s)
            ├── Suggests a status update
            └── Writes a 1-2 sentence summary of where things stand
 ```
+
+---
+
+## Replying inside the app
+
+When you open an email thread, every message has a **↩ Reply** button. Click it and a reply panel opens at the bottom of the dialog with the same composer experience as a new email:
+
+- Pick an **email template** to pre-fill the body — placeholders are substituted using the application context and your profile
+- Pick a **cover letter** template and **Attach as PDF** to add a generated cover letter
+- Toggle the **📎 Attach** panel to tick any uploaded file (CV, portfolio, etc.) to send along
+- Replies are properly threaded — Gmail uses `In-Reply-To` / `References` headers, Outlook uses the `createReply` draft flow so attachments work on Microsoft 365 too
+- Sending a reply automatically updates **Last contact** and clears any pending follow-up reminder
+
+This means you can send a missing CV, follow up after an interview, or accept an offer without ever leaving crm-e.
 
 ---
 
@@ -229,6 +316,38 @@ Click **Attach as PDF** and the cover letter is generated with jsPDF and attache
 
 ---
 
+## Compose assist
+
+When you open the Compose window, crm-e can show extra context or generate a draft for you. Choose your preferred mode under **Settings → Compose assist**:
+
+| Mode | What you get |
+|---|---|
+| **Context panel** *(default)* | The compose dialog widens to show a left panel with the application's details — company, role, contact, status, dates, job link and notes — so you can write a tailored email without switching tabs |
+| **AI Draft** | A `✨ AI Draft` button appears in the toolbar. Click it to generate a full subject + body using your OpenRouter model, tailored to the application's current stage |
+| **Both** | Context panel on the left *and* the AI Draft button in the toolbar |
+| **None** | Plain compose dialog, nothing extra |
+
+### Context panel
+
+The panel is always up to date with whatever is stored on the application — no extra steps needed. Empty fields (e.g. no deadline set) are automatically hidden so the panel stays clean.
+
+### AI Draft
+
+The AI is given the application's company, role, contact name, your name (from Profile), and a description of the current stage:
+
+| Application status | Stage sent to AI |
+|---|---|
+| Draft | Initial outreach — has not yet applied |
+| Applied | Polite follow-up on a pending application |
+| Replied | Continuing a conversation the recruiter started |
+| Interview | Thank-you or scheduling confirmation |
+| Offer | Responding to an offer |
+| Ghosted | Gentle final nudge after a long silence |
+
+The generated subject and body are placed directly into the compose fields, fully editable before you send. The AI button is disabled if no OpenRouter key or model is configured, with a tooltip directing you to Settings.
+
+---
+
 ## AI email analysis
 
 crm-e integrates with [OpenRouter](https://openrouter.ai) so you can use any LLM to classify your email threads.
@@ -277,6 +396,29 @@ Supported types: PDF, Word (.doc, .docx), images (JPEG, PNG, GIF, WebP), plain t
 
 ---
 
+## Deadline alerts
+
+Set an **Application deadline** on any application (in the Edit dialog). When the deadline is 7 days or fewer away, two things happen:
+
+**In the Applications table** — a pill appears inline next to the company name:
+
+| Pill | Meaning |
+|---|---|
+| 🟡 `3d left` | 3–7 days remaining |
+| 🔴 `1d left` | 1–2 days remaining |
+| 🔴 `Due today` | Deadline is today |
+
+**In the notification bell** — a bell entry appears:
+
+| Badge | Condition |
+|---|---|
+| 🟡 | Deadline in 3–7 days |
+| 🔴 | Deadline today or in 1–2 days |
+
+Deadline alerts are suppressed for applications already marked as Rejected, Ghosted, or Offer — they are only shown while the application is still active.
+
+---
+
 ## Follow-up reminders
 
 Set a **Follow-up date** on any application (in the Edit dialog). When that date arrives, a yellow banner appears at the top of the Applications tab:
@@ -286,6 +428,30 @@ Set a **Follow-up date** on any application (in the Edit dialog). When that date
 ```
 
 Sending or replying to an email automatically clears the reminder.
+
+---
+
+## Auto-updates
+
+crm-e checks for new versions on launch. When one is available, a green banner appears at the top of the window:
+
+```
+Update 1.0.2 is available    [ Install & restart ]
+```
+
+Click **Install & restart** and the new version downloads, installs, and relaunches the app — no manual download or reinstall. Updates are signed with the same key that built the release, so the updater verifies them before applying.
+
+---
+
+## Backup and restore
+
+Open **Settings → Data management** to back up or move your data:
+
+- **Export JSON** — downloads a single `.json` file containing every application, template, file, lead, view, and your profile. Stored emails and OAuth tokens are included too
+- **Import JSON** — replaces the current data with the contents of an exported file. Useful for moving between machines or restoring a backup
+- **Clear all data** — wipes everything in the local database and reloads with seeded defaults (the two starter email templates)
+
+Because everything lives in a single SQLite file you can also just copy `crm-data.db` directly between machines if you prefer file-level backups.
 
 ---
 

@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Themed scrollbars (WebKit / Tauri WebView) ───────────────────────────── */
+::-webkit-scrollbar              { width: 6px; height: 6px; }
+::-webkit-scrollbar-track        { background: var(--color-raised); border-radius: 999px; }
+::-webkit-scrollbar-thumb        { background: var(--color-edge); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover  { background: var(--color-lo); }
+::-webkit-scrollbar-corner       { background: var(--color-raised); }
+
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
 
